@@ -1,24 +1,42 @@
 package com.prstyadev.wibufy.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.prstyadev.wibufy.data.AnimeItem
+import com.prstyadev.wibufy.ui.theme.WibufyBackground
+import com.prstyadev.wibufy.ui.theme.WibufyPrimary
+import com.prstyadev.wibufy.ui.theme.WibufySecondary
+import com.prstyadev.wibufy.ui.theme.WibufySurface
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,126 +48,83 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Wibufy", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = onNavigateToSearch) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    }
-                    IconButton(onClick = onNavigateToBookmark) {
-                        Icon(Icons.Default.Bookmarks, contentDescription = "Bookmarks")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
+    Box(modifier = Modifier.fillMaxSize()) {
         if (uiState.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(color = WibufyPrimary)
             }
         } else if (uiState.error != null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = uiState.error ?: "Unknown error")
+                Text(text = uiState.error ?: "Unknown error", color = Color.White)
             }
         } else {
-            LazyColumn(
+            val page1Anime = uiState.page1Items
+            val page2Anime = uiState.page2Items
+            
+            var isExpanded by remember { mutableStateOf(false) }
+            val displayLimit = if (isExpanded) 24 else 12
+            
+            // Combine items
+            val recentAnime = (page1Anime + page2Anime)
+            val displayedAnime = recentAnime.take(displayLimit)
+
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .statusBarsPadding()
             ) {
-                val recentAnime = uiState.homeData?.recent?.animeList ?: emptyList()
-
-                if (recentAnime.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Featured",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                        // Use the first few for banner
-                        BannerCarousel(
-                            animeList = recentAnime.take(5),
-                            onAnimeClick = { onNavigateToDetail(it.animeId ?: "") }
-                        )
-                    }
-
-                    item {
-                        Text(
-                            text = "Recent Episodes",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(recentAnime) { anime ->
-                                AnimeCard(anime = anime, onClick = { onNavigateToDetail(anime.animeId ?: "") })
-                            }
-                        }
-                    }
-                    
-                    item {
-                        Text(
-                            text = "Popular Anime",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
-                        )
-                    }
-                    
-                    items(recentAnime.shuffled()) { anime ->
-                        AnimeListItem(anime = anime, onClick = { onNavigateToDetail(anime.animeId ?: "") })
-                    }
+                // Fixed Search Bar at the top
+                Box(modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)) {
+                    SearchBarUI(onClick = onNavigateToSearch)
                 }
-            }
-        }
-    }
-}
 
-@Composable
-fun BannerCarousel(animeList: List<AnimeItem>, onAnimeClick: (AnimeItem) -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = Modifier.height(200.dp)
-    ) {
-        items(animeList) { anime ->
-            Card(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(320.dp)
-                    .clickable { onAnimeClick(anime) }
-            ) {
-                Box {
-                    AsyncImage(
-                        model = anime.poster,
-                        contentDescription = anime.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(12.dp),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                            shape = MaterialTheme.shapes.small
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(
+                        start = 16.dp, 
+                        end = 16.dp, 
+                        top = 8.dp, 
+                        bottom = 16.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Section Header Span
+                    item(span = { GridItemSpan(3) }) {
+                        SectionHeader()
+                    }
+
+                    // Grid Items
+                    itemsIndexed(displayedAnime) { index, anime ->
+                        val isPage1 = index < page1Anime.size
+                        AnimeGridItem(
+                            anime = anime, 
+                            isNew = isPage1,
+                            onClick = { onNavigateToDetail(anime.animeId ?: "") }
+                        )
+                    }
+
+                    // Show More / Show Less Button
+                    item(span = { GridItemSpan(3) }) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = anime.title ?: "",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = if (isExpanded) "Show Less" else "Show More",
+                                color = Color.White,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.clickable { 
+                                    isExpanded = !isExpanded 
+                                    if (isExpanded) {
+                                        viewModel.loadPage2()
+                                    }
+                                }
                             )
+                            Spacer(modifier = Modifier.height(24.dp))
                         }
                     }
                 }
@@ -159,30 +134,189 @@ fun BannerCarousel(animeList: List<AnimeItem>, onAnimeClick: (AnimeItem) -> Unit
 }
 
 @Composable
-fun AnimeCard(anime: AnimeItem, onClick: () -> Unit) {
-    Card(
+fun SearchBarUI(onClick: () -> Unit) {
+    Box(
         modifier = Modifier
-            .width(140.dp)
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .height(52.dp)
+            .clip(CircleShape)
+            .background(Color(0xFF1E1F23))
+            .clickable { onClick() },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search",
+                tint = Color(0xFFA0A0A0),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "Cari Anime Di Sini",
+                color = Color(0xFFA0A0A0),
+                fontSize = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun SectionHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = buildAnnotatedString {
+                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
+                    append("New")
+                }
+                withStyle(style = SpanStyle(fontWeight = FontWeight.Normal, color = Color.White)) {
+                    append(" Update\nAnime")
+                }
+            },
+            fontSize = 24.sp,
+            lineHeight = 28.sp
+        )
+        Text(
+            text = "Lihat Jadwal >",
+            color = WibufySecondary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clickable { /* TODO */ }
+                .padding(end = 16.dp)
+        )
+    }
+}
+
+@Composable
+fun AnimeGridItem(anime: AnimeItem, isNew: Boolean = false, onClick: () -> Unit) {
+    // Generate pseudo-random view count based on ID
+    val pseudoViews = kotlin.math.abs((anime.animeId ?: "").hashCode() % 1500) / 10f + 1.2f
+    val formattedViews = String.format(Locale.US, "%.1fK", pseudoViews)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        Column {
+        // Poster Box
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.7f)
+                .clip(RoundedCornerShape(12.dp))
+        ) {
             AsyncImage(
                 model = anime.poster,
                 contentDescription = anime.title,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
+
+            // Top Left New Badge
+            if (isNew) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .clip(RoundedCornerShape(bottomEnd = 12.dp))
+                        .background(Color(0xFF2A93E6))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "New",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Top Right Rating Badge
+            val scoreValue = anime.score?.value?.takeIf { it.isNotBlank() } ?: "N/A"
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(bottomStart = 12.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Star,
+                        contentDescription = "Rating",
+                        tint = WibufyPrimary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text(
+                        text = scoreValue,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Bottom Gradient & Episode Text
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color(0xFF161719))
+                        )
+                    )
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = "Eps ${anime.episodes ?: "?"}",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Info Section
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Rounded.Visibility,
+                contentDescription = "Views",
+                tint = Color(0xFFA0A0A0),
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = anime.title ?: "",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(8.dp)
+                text = "$formattedViews views",
+                color = Color(0xFFA0A0A0),
+                fontSize = 11.sp
             )
         }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = anime.title ?: "",
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 16.sp
+        )
     }
 }
 

@@ -9,6 +9,14 @@ data class BaseResponse<T>(
 )
 
 @JsonClass(generateAdapter = true)
+data class RecentData(
+    val provider: String? = null,
+    val page: Int? = null,
+    val itemCount: Int? = null,
+    val animeList: List<AnimeItem>? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class HomeData(
     val provider: String? = null,
     val recent: HomeSection? = null
@@ -37,6 +45,7 @@ data class AnimeItem(
     val href: String? = null,
     val samehadakuUrl: String? = null,
     val type: String? = null,
+    val status: String? = null,
     val score: ScoreDetail? = null
 )
 

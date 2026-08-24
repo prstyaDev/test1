@@ -2,10 +2,14 @@ package com.prstyadev.wibufy.data
 
 import retrofit2.http.GET
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 interface WibufyApiService {
     @GET("api/samehadaku/home")
-    suspend fun getHome(): BaseResponse<HomeData>
+    suspend fun getHome(@Query("page") page: Int = 1): BaseResponse<HomeData>
+
+    @GET("api/samehadaku/recent")
+    suspend fun getRecentAnime(@Query("page") page: Int = 1): BaseResponse<RecentData>
 
     @GET("api/samehadaku/anime/{animeId}")
     suspend fun getAnimeDetail(@Path("animeId") animeId: String): BaseResponse<AnimeDetailData>
