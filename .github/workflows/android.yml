@@ -46,6 +46,13 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-gradle-
 
+    - name: Generate debug keystore
+      run: |
+        keytool -genkey -v -keystore debug.keystore \
+          -keyalg RSA -keysize 2048 -validity 10000 \
+          -alias androiddebugkey -keypass android -storepass android \
+          -dname "CN=Android Debug,O=Android,C=US"
+
     - name: Build debug APK
       run: ./gradlew assembleDebug --stacktrace
 
