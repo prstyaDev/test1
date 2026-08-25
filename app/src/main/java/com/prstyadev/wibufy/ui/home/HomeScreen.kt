@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.prstyadev.wibufy.data.AnimeItem
+import com.prstyadev.wibufy.ui.components.AnimeGridItem
 import com.prstyadev.wibufy.ui.theme.WibufyBackground
 import com.prstyadev.wibufy.ui.theme.WibufyPrimary
 import com.prstyadev.wibufy.ui.theme.WibufySecondary
@@ -142,7 +143,7 @@ fun HomeScreen(
                         val isPage1 = index < page1Anime.size
                         AnimeGridItem(
                             anime = anime, 
-                            isNew = isPage1,
+                            showBadge = isPage1,
                             onClick = { onNavigateToDetail(anime.animeId ?: "") }
                         )
                     }
@@ -240,154 +241,6 @@ fun SectionHeader(onNavigateToSchedule: () -> Unit = {}) {
                 .singleClick(debounceTime = 600L, onClick = onNavigateToSchedule)
                 .padding(end = 16.dp)
                 .testTag("home_see_schedule_button")
-        )
-    }
-}
-
-@Composable
-fun AnimeGridItem(anime: AnimeItem, isNew: Boolean = false, onClick: () -> Unit) {
-    // Generate pseudo-random view count based on ID
-    val pseudoViews = kotlin.math.abs((anime.animeId ?: "").hashCode() % 1500) / 10f + 1.2f
-    val formattedViews = String.format(Locale.US, "%.1fK", pseudoViews)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .singleClick(debounceTime = 600L, onClick = onClick)
-    ) {
-        // Poster Box
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(12.dp))
-        ) {
-            AsyncImage(
-                model = anime.poster,
-                contentDescription = anime.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-
-            // Bottom-Only Soft Gradient Overlay for Episode Text (leaves top & center of poster crisp and clear)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color(0xFF161719).copy(alpha = 0.5f),
-                                Color(0xFF161719).copy(alpha = 0.85f)
-                            )
-                        )
-                    )
-            )
-
-            // Top Left New Badge
-            if (isNew) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .clip(RoundedCornerShape(bottomEnd = 10.dp))
-                        .background(Color(0xFF2A93E6))
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "New",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Top Right Rating Badge (More compact and smaller than New badge)
-            val scoreValue = anime.score?.takeIf { it.isNotBlank() } ?: "N/A"
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 6.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 4.dp, vertical = 1.5.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(1.5.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Star,
-                        contentDescription = "Rating",
-                        tint = WibufyPrimary,
-                        modifier = Modifier.size(9.dp)
-                    )
-                    Text(
-                        text = scoreValue,
-                        color = Color.White,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Episode Text at Bottom-Left
-            Text(
-                text = "Eps ${anime.episodes ?: "?"}",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Info Section (Views matching mockup)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Visibility,
-                contentDescription = "Views",
-                tint = Color(0xFF9E9FA4),
-                modifier = Modifier.size(13.5.dp)
-            )
-            Text(
-                text = "$formattedViews views",
-                color = Color(0xFF9E9FA4),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Normal
-            )
-        }
-
-        Spacer(modifier = Modifier.height(2.dp))
-
-        // Title formatted: First word Bold, rest Normal
-        val fullTitle = anime.title ?: ""
-        val parts = fullTitle.split(" ", limit = 2)
-        val firstWord = parts.firstOrNull() ?: ""
-        val remainingWords = if (parts.size > 1) " " + parts[1] else ""
-
-        Text(
-            text = androidx.compose.ui.text.buildAnnotatedString {
-                withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
-                    append(firstWord)
-                }
-                if (remainingWords.isNotEmpty()) {
-                    withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Normal, color = Color.White)) {
-                        append(remainingWords)
-                    }
-                }
-            },
-            fontSize = 13.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 16.sp
         )
     }
 }

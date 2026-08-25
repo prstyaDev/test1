@@ -25,6 +25,7 @@ import com.prstyadev.wibufy.ui.home.HomeScreen
 import com.prstyadev.wibufy.ui.detail.DetailScreen
 import com.prstyadev.wibufy.ui.search.SearchScreen
 import com.prstyadev.wibufy.ui.bookmark.BookmarkScreen
+import com.prstyadev.wibufy.ui.subscribed.SubscribedScreen
 import com.prstyadev.wibufy.ui.player.VideoPlayerScreen
 import com.prstyadev.wibufy.ui.schedule.ScheduleScreen
 import com.prstyadev.wibufy.ui.components.ComingSoonScreen
@@ -143,7 +144,7 @@ fun AppNavigation() {
             }
             
             composable("subscribed") {
-                BookmarkScreen(
+                SubscribedScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToDetail = { animeId ->
                         navController.navigate("detail/$animeId")

@@ -1,10 +1,10 @@
 package com.prstyadev.wibufy.ui.schedule
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.prstyadev.wibufy.data.RetrofitClient
 import com.prstyadev.wibufy.data.ScheduleAnimeItem
-import com.prstyadev.wibufy.data.ScheduleDayItem
+import com.prstyadev.wibufy.data.ScheduleRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,18 +40,15 @@ data class ScheduleUiState(
     val error: String? = null
 )
 
-class ScheduleViewModel : ViewModel() {
+class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(ScheduleUiState())
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
-    private val defaultTimes = listOf(
-        "06:30", "08:00", "10:30", "12:00", "14:30",
-        "16:00", "17:30", "19:00", "20:30", "21:00", "22:30", "23:00"
-    )
+    private val scheduleRepository = ScheduleRepository(application)
 
     init {
         setupWeekDays()
-        fetchSchedule()
+        loadSchedule()
     }
 
     private fun setupWeekDays() {
@@ -92,70 +89,80 @@ class ScheduleViewModel : ViewModel() {
         }
     }
 
-    fun fetchSchedule() {
+    fun loadSchedule() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            try {
-                val response = RetrofitClient.apiService.getSchedule()
-                val scheduleList = response.data?.scheduleList ?: emptyList()
-                val scheduleMap = parseScheduleList(scheduleList)
+            // 1. Cek cache lokal terlebih dahulu. Jika ada data cache, LANGSUNG tampilkan ke UI secara instan (0 ms)
+            val cachedMap = try {
+                scheduleRepository.getCachedSchedule()
+            } catch (e: Exception) {
+                emptyMap()
+            }
 
+            if (cachedMap.isNotEmpty()) {
                 _uiState.update { current ->
                     val currentItems = mapToUiModels(
-                        animeList = scheduleMap[current.selectedDayIndex] ?: emptyList(),
+                        animeList = cachedMap[current.selectedDayIndex] ?: emptyList(),
                         selectedDayIndex = current.selectedDayIndex
                     )
                     current.copy(
                         isLoading = false,
-                        scheduleByDay = scheduleMap,
+                        scheduleByDay = cachedMap,
+                        currentDayAnimeList = currentItems,
+                        error = null
+                    )
+                }
+            } else {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
+
+            // 2. Jalankan network call ke API di background untuk memperbarui data
+            try {
+                val freshMap = scheduleRepository.fetchAndCacheSchedule()
+                _uiState.update { current ->
+                    val currentItems = mapToUiModels(
+                        animeList = freshMap[current.selectedDayIndex] ?: emptyList(),
+                        selectedDayIndex = current.selectedDayIndex
+                    )
+                    current.copy(
+                        isLoading = false,
+                        scheduleByDay = freshMap,
                         currentDayAnimeList = currentItems,
                         error = null
                     )
                 }
             } catch (e: UnknownHostException) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = "Tidak dapat terhubung ke server. Periksa koneksi internet Anda."
-                    )
+                if (_uiState.value.scheduleByDay.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Tidak dapat terhubung ke server. Periksa koneksi internet Anda."
+                        )
+                    }
                 }
             } catch (e: IOException) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = "Terjadi kesalahan jaringan: ${e.message}"
-                    )
+                if (_uiState.value.scheduleByDay.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Terjadi kesalahan jaringan: ${e.message}"
+                        )
+                    }
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = e.message ?: "Gagal memuat jadwal"
-                    )
+                if (_uiState.value.scheduleByDay.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Gagal memuat jadwal"
+                        )
+                    }
                 }
             }
         }
     }
 
-    private fun parseScheduleList(list: List<ScheduleDayItem>): Map<Int, List<ScheduleAnimeItem>> {
-        val map = mutableMapOf<Int, List<ScheduleAnimeItem>>()
-        list.forEach { dayItem ->
-            val dayName = dayItem.day?.trim()?.lowercase() ?: ""
-            val index = when {
-                dayName.contains("sun") || dayName.contains("minggu") || dayName.contains("min") -> 0
-                dayName.contains("mon") || dayName.contains("senin") || dayName.contains("sen") -> 1
-                dayName.contains("tue") || dayName.contains("selasa") || dayName.contains("sel") -> 2
-                dayName.contains("wed") || dayName.contains("rabu") || dayName.contains("rab") -> 3
-                dayName.contains("thu") || dayName.contains("kamis") || dayName.contains("kam") -> 4
-                dayName.contains("fri") || dayName.contains("jumat") || dayName.contains("jum") -> 5
-                dayName.contains("sat") || dayName.contains("sabtu") || dayName.contains("sab") -> 6
-                else -> -1
-            }
-            if (index in 0..6) {
-                map[index] = dayItem.animeList ?: emptyList()
-            }
-        }
-        return map
+    fun fetchSchedule() {
+        loadSchedule()
     }
 
     private fun mapToUiModels(

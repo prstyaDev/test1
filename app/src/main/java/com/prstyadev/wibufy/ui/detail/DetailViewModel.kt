@@ -6,13 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.prstyadev.wibufy.data.AnimeDetailData
 import com.prstyadev.wibufy.data.AppDatabase
 import com.prstyadev.wibufy.data.BookmarkEntity
-import com.prstyadev.wibufy.data.RetrofitClient
+import com.prstyadev.wibufy.data.DetailRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
 import java.io.IOException
 import java.net.UnknownHostException
 
@@ -28,20 +27,63 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
 
     private val bookmarkDao = AppDatabase.getDatabase(application).bookmarkDao()
+    private val detailRepository = DetailRepository(application)
 
     fun loadAnimeDetail(animeId: String) {
+        if (animeId.isBlank()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            try {
-                val response = RetrofitClient.apiService.getAnimeDetail(animeId)
-                _uiState.update { it.copy(isLoading = false, detailData = response.data) }
-                checkBookmarkStatus(animeId)
-            } catch (e: UnknownHostException) {
-                _uiState.update { it.copy(isLoading = false, error = "Unable to reach server. Please check your internet connection.") }
-            } catch (e: IOException) {
-                _uiState.update { it.copy(isLoading = false, error = "Network error: ${e.message}") }
+            checkBookmarkStatus(animeId)
+
+            // 1. Tampilkan data dari Room DB terlebih dahulu jika sudah pernah di-fetch sebelumnya (0 ms)
+            val cachedData = try {
+                detailRepository.getCachedAnimeDetail(animeId)
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                null
+            }
+
+            if (cachedData != null) {
+                _uiState.update {
+                    it.copy(isLoading = false, detailData = cachedData, error = null)
+                }
+            } else {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
+
+            // 2. Jalankan silent network fetch di background untuk memastikan daftar episode selalu paling up-to-date
+            try {
+                val freshData = detailRepository.fetchAndCacheAnimeDetail(animeId)
+                if (freshData != null) {
+                    _uiState.update {
+                        it.copy(isLoading = false, detailData = freshData, error = null)
+                    }
+                }
+            } catch (e: UnknownHostException) {
+                if (_uiState.value.detailData == null) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Unable to reach server. Please check your internet connection."
+                        )
+                    }
+                }
+            } catch (e: IOException) {
+                if (_uiState.value.detailData == null) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Network error: ${e.message}"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                if (_uiState.value.detailData == null) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Failed to load anime detail"
+                        )
+                    }
+                }
             }
         }
     }
@@ -60,14 +102,32 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
             if (_uiState.value.isBookmarked) {
                 bookmarkDao.deleteBookmarkById(animeId)
             } else {
+                val epText = currentData.episodes
+                    ?: currentData.episodeList?.firstOrNull()?.let { 
+                        it.title?.toString()?.replace(Regex("[^0-9]"), "")?.ifEmpty { null }
+                    }
+                    ?: "?"
+                val scoreVal = currentData.score?.value ?: "N/A"
+                val statusVal = currentData.status?.takeIf { it.isNotBlank() } ?: "Ongoing"
+                val cleanTitle = currentData.title?.takeIf { it.isNotBlank() }
+                    ?: currentData.japanese?.takeIf { it.isNotBlank() }
+                    ?: animeId.replace("-", " ")
+                        .split(" ")
+                        .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+
                 bookmarkDao.insertBookmark(
                     BookmarkEntity(
                         animeId = animeId,
-                        title = currentData.title ?: "Unknown",
-                        poster = currentData.poster
+                        title = cleanTitle,
+                        poster = currentData.poster,
+                        episodes = epText,
+                        score = scoreVal,
+                        status = statusVal,
+                        timestamp = System.currentTimeMillis()
                     )
                 )
             }
         }
     }
 }
+

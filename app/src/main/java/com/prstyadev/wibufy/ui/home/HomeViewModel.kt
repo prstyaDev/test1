@@ -1,10 +1,11 @@
 package com.prstyadev.wibufy.ui.home
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.prstyadev.wibufy.data.AnimeItem
+import com.prstyadev.wibufy.data.HomeRepository
 import com.prstyadev.wibufy.data.RecentData
-import com.prstyadev.wibufy.data.RetrofitClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,25 +13,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.net.UnknownHostException
-
-object HomeCache {
-    var recentData: RecentData? = null
-    var page1Items: List<AnimeItem> = emptyList()
-    var page2Items: List<AnimeItem> = emptyList()
-    var lastFetchTime: Long = 0L
-
-    fun hasData(): Boolean = page1Items.isNotEmpty()
-
-    fun updatePage1(data: RecentData?, items: List<AnimeItem>) {
-        recentData = data
-        page1Items = items
-        lastFetchTime = System.currentTimeMillis()
-    }
-
-    fun updatePage2(items: List<AnimeItem>) {
-        page2Items = items
-    }
-}
 
 data class HomeUiState(
     val isLoading: Boolean = false,
@@ -42,53 +24,73 @@ data class HomeUiState(
     val error: String? = null
 )
 
-class HomeViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(
-        if (HomeCache.hasData()) {
-            HomeUiState(
-                isLoading = false,
-                recentData = HomeCache.recentData,
-                page1Items = HomeCache.page1Items,
-                page2Items = HomeCache.page2Items
-            )
-        } else {
-            HomeUiState(isLoading = true)
-        }
-    )
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
+    private val homeRepository = HomeRepository(application)
+
+    private val _uiState = MutableStateFlow(HomeUiState(isLoading = true))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     init {
-        // If cache is available, do silent background update without showing fullscreen spinner
-        fetchHomeData(isSilent = HomeCache.hasData())
+        loadInitialHomeData()
+    }
+
+    private fun loadInitialHomeData() {
+        viewModelScope.launch {
+            // Step 1 (0 ms): BACA LANGSUNG data dari Room DB (home_cache)
+            val cachedPage1 = try {
+                homeRepository.getCachedRecentAnime()
+            } catch (e: Exception) {
+                null
+            }
+
+            val cachedPage2 = try {
+                homeRepository.getCachedPage2Anime()
+            } catch (e: Exception) {
+                null
+            }
+
+            val hasCache = !cachedPage1.isNullOrEmpty()
+            if (hasCache) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        page1Items = cachedPage1 ?: emptyList(),
+                        page2Items = cachedPage2 ?: emptyList(),
+                        error = null
+                    )
+                }
+            } else {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
+
+            // Step 2 & 3: Background sync fetch ke API Recent Anime dan simpan ke Room DB
+            fetchHomeData(isSilent = hasCache)
+        }
     }
 
     fun refreshHomeData() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
             try {
-                val response = RetrofitClient.apiService.getRecentAnime(page = 1)
-                val items = response.data?.animeList ?: emptyList()
-                HomeCache.updatePage1(response.data, items)
+                val (recentData, page1List) = homeRepository.fetchAndCacheRecentAnime(page = 1)
 
                 val updatedPage2 = if (_uiState.value.page2Items.isNotEmpty()) {
                     try {
-                        val p2Response = RetrofitClient.apiService.getRecentAnime(page = 2)
-                        val p2Items = p2Response.data?.animeList ?: emptyList()
-                        HomeCache.updatePage2(p2Items)
-                        p2Items
+                        val (_, p2List) = homeRepository.fetchAndCacheRecentAnime(page = 2)
+                        p2List
                     } catch (e: Exception) {
                         _uiState.value.page2Items
                     }
                 } else {
-                    emptyList()
+                    _uiState.value.page2Items
                 }
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         isRefreshing = false,
-                        recentData = response.data,
-                        page1Items = items,
+                        recentData = recentData,
+                        page1Items = page1List,
                         page2Items = updatedPage2,
                         error = null
                     )
@@ -97,21 +99,21 @@ class HomeViewModel : ViewModel() {
                 _uiState.update { 
                     it.copy(
                         isRefreshing = false, 
-                        error = if (!HomeCache.hasData()) "Unable to reach server. Please check your internet connection." else null
+                        error = if (_uiState.value.page1Items.isEmpty()) "Unable to reach server. Please check your internet connection." else null
                     ) 
                 }
             } catch (e: IOException) {
                 _uiState.update { 
                     it.copy(
                         isRefreshing = false, 
-                        error = if (!HomeCache.hasData()) "Network error: ${e.message}" else null
+                        error = if (_uiState.value.page1Items.isEmpty()) "Network error: ${e.message}" else null
                     ) 
                 }
             } catch (e: Exception) {
                 _uiState.update { 
                     it.copy(
                         isRefreshing = false, 
-                        error = if (!HomeCache.hasData()) e.message else null
+                        error = if (_uiState.value.page1Items.isEmpty()) (e.message ?: "Failed to load anime") else null
                     ) 
                 }
             }
@@ -124,33 +126,31 @@ class HomeViewModel : ViewModel() {
                 _uiState.update { it.copy(isLoading = true, error = null) }
             }
             try {
-                val response = RetrofitClient.apiService.getRecentAnime(page = 1)
-                val originalList = response.data?.animeList ?: emptyList()
-                HomeCache.updatePage1(response.data, originalList)
+                val (recentData, page1List) = homeRepository.fetchAndCacheRecentAnime(page = 1)
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        recentData = response.data,
-                        page1Items = originalList,
+                        recentData = recentData,
+                        page1Items = page1List,
                         error = null
                     )
                 }
             } catch (e: UnknownHostException) {
-                if (!HomeCache.hasData()) {
+                if (_uiState.value.page1Items.isEmpty()) {
                     _uiState.update { it.copy(isLoading = false, error = "Unable to reach server. Please check your internet connection.") }
                 } else {
                     _uiState.update { it.copy(isLoading = false) }
                 }
             } catch (e: IOException) {
-                if (!HomeCache.hasData()) {
+                if (_uiState.value.page1Items.isEmpty()) {
                     _uiState.update { it.copy(isLoading = false, error = "Network error: ${e.message}") }
                 } else {
                     _uiState.update { it.copy(isLoading = false) }
                 }
             } catch (e: Exception) {
-                if (!HomeCache.hasData()) {
-                    _uiState.update { it.copy(isLoading = false, error = e.message) }
+                if (_uiState.value.page1Items.isEmpty()) {
+                    _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load anime") }
                 } else {
                     _uiState.update { it.copy(isLoading = false) }
                 }
@@ -164,9 +164,7 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true, error = null) }
             try {
-                val response = RetrofitClient.apiService.getRecentAnime(page = 2)
-                val newItems = response.data?.animeList ?: emptyList()
-                HomeCache.updatePage2(newItems)
+                val (_, newItems) = homeRepository.fetchAndCacheRecentAnime(page = 2)
 
                 _uiState.update {
                     it.copy(
