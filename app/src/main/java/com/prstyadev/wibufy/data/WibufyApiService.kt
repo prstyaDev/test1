@@ -19,4 +19,7 @@ interface WibufyApiService {
 
     @GET("api/stream/{episodeSlug}")
     suspend fun getStreamEngine(@Path("episodeSlug") episodeSlug: String): BaseResponse<StreamData>
+
+    @GET("api/schedule")
+    suspend fun getSchedule(): BaseResponse<ScheduleData>
 }

@@ -26,6 +26,7 @@ import com.prstyadev.wibufy.ui.detail.DetailScreen
 import com.prstyadev.wibufy.ui.search.SearchScreen
 import com.prstyadev.wibufy.ui.bookmark.BookmarkScreen
 import com.prstyadev.wibufy.ui.player.VideoPlayerScreen
+import com.prstyadev.wibufy.ui.schedule.ScheduleScreen
 import com.prstyadev.wibufy.ui.components.ComingSoonScreen
 
 @Composable
@@ -47,7 +48,7 @@ fun AppNavigation() {
                 ) {
                     val navItems = listOf(
                         "Home" to Icons.Rounded.Home,
-                        "Schedule" to Icons.Rounded.CalendarToday,
+                        "Jadwal" to Icons.Rounded.CalendarToday,
                         "History" to Icons.Outlined.Schedule,
                         "Subscribed" to Icons.Filled.Subscriptions,
                         "Profile" to Icons.Rounded.AccountCircle
@@ -118,12 +119,23 @@ fun AppNavigation() {
                     onNavigateToBookmark = {
                         // In HomeScreen, if they click bookmarks icon on top bar, they could go to subscribed.
                         navController.navigate("subscribed")
+                    },
+                    onNavigateToSchedule = {
+                        navController.navigate("schedule") {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 )
             }
             
             composable("schedule") {
-                ComingSoonScreen(title = "Schedule Coming Soon")
+                ScheduleScreen(
+                    onNavigateToDetail = { animeId ->
+                        navController.navigate("detail/$animeId")
+                    }
+                )
             }
             
             composable("history") {

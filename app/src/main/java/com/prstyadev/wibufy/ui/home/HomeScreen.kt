@@ -46,6 +46,7 @@ fun HomeScreen(
     onNavigateToDetail: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToBookmark: () -> Unit,
+    onNavigateToSchedule: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -96,7 +97,7 @@ fun HomeScreen(
                 ) {
                     // Section Header Span
                     item(span = { GridItemSpan(3) }) {
-                        SectionHeader()
+                        SectionHeader(onNavigateToSchedule = onNavigateToSchedule)
                     }
 
                     // Grid Items
@@ -173,7 +174,7 @@ fun SearchBarUI(onClick: () -> Unit) {
 }
 
 @Composable
-fun SectionHeader() {
+fun SectionHeader(onNavigateToSchedule: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -199,8 +200,9 @@ fun SectionHeader() {
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
-                .singleClick(debounceTime = 600L) { /* TODO */ }
+                .singleClick(debounceTime = 600L, onClick = onNavigateToSchedule)
                 .padding(end = 16.dp)
+                .testTag("home_see_schedule_button")
         )
     }
 }

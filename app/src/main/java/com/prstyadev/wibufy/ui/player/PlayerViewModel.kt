@@ -30,6 +30,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         const val PREF_SELECTED_QUALITY = "PREF_SELECTED_QUALITY"
     }
 
+    // In-memory stream cache
+    private val streamCache = mutableMapOf<String, StreamData>()
+
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
@@ -41,40 +44,65 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         prefs.edit().putString(PREF_SELECTED_QUALITY, quality).apply()
     }
 
+    private fun selectBestQuality(data: StreamData?): Pair<String?, String?> {
+        val savedQuality = getSavedQuality()
+        val defaultQuality = data?.defaultQuality ?: "480p"
+
+        val selectedQualityItem = if (!savedQuality.isNullOrEmpty()) {
+            data?.qualities?.find { it.quality.equals(savedQuality, ignoreCase = true) }
+                ?: data?.qualities?.find { it.quality.equals(defaultQuality, ignoreCase = true) }
+                ?: data?.qualities?.find { it.quality.equals("480p", ignoreCase = true) }
+                ?: data?.qualities?.firstOrNull()
+        } else {
+            data?.qualities?.find { it.quality.equals(defaultQuality, ignoreCase = true) }
+                ?: data?.qualities?.find { it.quality.equals("480p", ignoreCase = true) }
+                ?: data?.qualities?.firstOrNull()
+        }
+        return Pair(selectedQualityItem?.quality, selectedQualityItem?.url)
+    }
+
     fun loadStream(episodeSlug: String) {
+        // Check cache first
+        val cachedStream = streamCache[episodeSlug]
+        if (cachedStream != null) {
+            val (qualityName, qualityUrl) = selectBestQuality(cachedStream)
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    streamData = cachedStream,
+                    currentQuality = qualityName,
+                    currentQualityUrl = qualityUrl,
+                    error = null
+                )
+            }
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val response = RetrofitClient.apiService.getStreamEngine(episodeSlug)
                 val data = response.data
-                val savedQuality = getSavedQuality()
-                val defaultQuality = data?.defaultQuality ?: "480p"
-
-                val selectedQualityItem = if (!savedQuality.isNullOrEmpty()) {
-                    data?.qualities?.find { it.quality.equals(savedQuality, ignoreCase = true) }
-                        ?: data?.qualities?.find { it.quality.equals(defaultQuality, ignoreCase = true) }
-                        ?: data?.qualities?.find { it.quality.equals("480p", ignoreCase = true) }
-                        ?: data?.qualities?.firstOrNull()
-                } else {
-                    data?.qualities?.find { it.quality.equals(defaultQuality, ignoreCase = true) }
-                        ?: data?.qualities?.find { it.quality.equals("480p", ignoreCase = true) }
-                        ?: data?.qualities?.firstOrNull()
+                if (data != null) {
+                    streamCache[episodeSlug] = data
                 }
+
+                val (qualityName, qualityUrl) = selectBestQuality(data)
 
                 _uiState.update { 
                     it.copy(
                         isLoading = false,
                         streamData = data,
-                        currentQuality = selectedQualityItem?.quality,
-                        currentQualityUrl = selectedQualityItem?.url
+                        currentQuality = qualityName,
+                        currentQualityUrl = qualityUrl
                     )
                 }
             } catch (e: UnknownHostException) {
-                _uiState.update { it.copy(isLoading = false, error = "Unable to reach server. Please check your internet connection.") }
+                _uiState.update { it.copy(isLoading = false, error = "Tidak dapat terhubung ke server. Periksa koneksi internet Anda.") }
             } catch (e: IOException) {
-                _uiState.update { it.copy(isLoading = false, error = "Network error: ${e.message}") }
+                _uiState.update { it.copy(isLoading = false, error = "Kesalahan jaringan: ${e.message}") }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                _uiState.update { it.copy(isLoading = false, error = e.message ?: "Terjadi kesalahan") }
             }
         }
     }

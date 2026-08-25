@@ -1,5 +1,6 @@
 package com.prstyadev.wibufy.data
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
@@ -116,4 +117,31 @@ data class QualityItem(
     val provider: String? = null,
     val type: String? = null,
     val url: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ScheduleData(
+    val provider: String? = null,
+    val scheduleList: List<ScheduleDayItem>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ScheduleDayItem(
+    val day: String? = null,
+    @Json(name = "anime_list") val animeList: List<ScheduleAnimeItem>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ScheduleAnimeItem(
+    val title: String? = null,
+    val poster: String? = null,
+    val type: String? = null,
+    val score: String? = null,
+    val estimation: String? = null,
+    val genres: String? = null,
+    val animeId: String? = null,
+    val href: String? = null,
+    val samehadakuUrl: String? = null,
+    val episodes: String? = null,
+    val time: String? = null
 )
