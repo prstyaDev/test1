@@ -40,12 +40,12 @@ private val ColorBackground = Color(0xFF161719)
 private val ColorCardSurface = Color(0xFF1E1F23)
 private val ColorAccentActive = Color(0xFF2A93E6)
 private val ColorStatusAired = Color(0xFFFDD734)
-private val ColorStatusWaiting = Color(0xFF888888)
-private val ColorStripeWaiting = Color(0xFF4B4C52)
+private val ColorStatusWaiting = Color(0xFF8E9096)
+private val ColorStripeWaiting = Color(0xFF45474D)
 private val ColorTextPrimary = Color(0xFFFFFFFF)
 private val ColorTextMuted = Color(0xFF9A9BA0)
 private val ColorDateInactive = Color(0xFF727375)
-private val ColorDivider = Color(0xFF2A2B2F)
+private val ColorDivider = Color(0xFF26272B)
 private val ColorPillButton = Color(0xFF141517)
 private val ColorPillBorder = Color(0xFF2E3035)
 
@@ -75,19 +75,27 @@ fun ScheduleScreen(
             Text(
                 text = "Jadwal Tayang",
                 color = ColorTextPrimary,
-                fontSize = 22.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 18.dp, bottom = 18.dp),
+                    .padding(top = 16.dp, bottom = 14.dp),
                 textAlign = TextAlign.Center
             )
+
+            // Thin Horizontal Divider under Jadwal Tayang header
+            HorizontalDivider(
+                color = ColorDivider,
+                thickness = 1.dp
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Horizontal Date Selector (Min, Sen, Sel, Rab, Kam, Jum, Sab)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
@@ -101,7 +109,7 @@ fun ScheduleScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Thin Horizontal Divider under date selector
             HorizontalDivider(
@@ -369,20 +377,33 @@ fun ScheduleCardItem(
     }
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(
+            topStart = 0.dp,
+            bottomStart = 0.dp,
+            topEnd = 16.dp,
+            bottomEnd = 16.dp
+        ),
         color = ColorCardSurface,
         modifier = Modifier
             .fillMaxWidth()
+            .clip(
+                RoundedCornerShape(
+                    topStart = 0.dp,
+                    bottomStart = 0.dp,
+                    topEnd = 16.dp,
+                    bottomEnd = 16.dp
+                )
+            )
             .singleClick(debounceTime = 600L, onClick = onClick)
             .testTag("schedule_card_${anime.animeId ?: anime.title}")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+                .height(114.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Vertical Stripe Far-Left
+            // 1. Vertical Stripe Far-Left (Sharp 90-degree edge)
             Box(
                 modifier = Modifier
                     .width(5.dp)
@@ -393,28 +414,27 @@ fun ScheduleCardItem(
             // 2. Air Time Column
             Box(
                 modifier = Modifier
-                    .width(68.dp)
+                    .width(66.dp)
                     .fillMaxHeight()
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = model.airTime,
                     color = ColorTextPrimary,
                     fontSize = 19.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
             }
 
-            // 3. Poster Anime
+            // 3. Poster Anime (Full height with rounded corners)
             Box(
                 modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(76.dp)
-                    .height(104.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF28292E))
+                    .fillMaxHeight()
+                    .width(78.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF161719))
             ) {
                 AsyncImage(
                     model = anime.poster,
@@ -430,8 +450,9 @@ fun ScheduleCardItem(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 12.dp, top = 12.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.Center
+                    .fillMaxHeight()
+                    .padding(end = 12.dp, top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
                 // Judul Anime
                 Text(
@@ -443,8 +464,6 @@ fun ScheduleCardItem(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
                 // Episode
                 Text(
                     text = episodeText,
@@ -453,21 +472,21 @@ fun ScheduleCardItem(
                     fontWeight = FontWeight.Normal
                 )
 
-                Spacer(modifier = Modifier.height(5.dp))
-
                 // Views + Rating
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Visibility,
                             contentDescription = "Views",
                             tint = ColorTextMuted,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = formattedViews,
                             color = ColorTextMuted,
@@ -475,40 +494,40 @@ fun ScheduleCardItem(
                         )
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Star,
                             contentDescription = "Rating",
                             tint = ColorStatusAired,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = scoreValue,
                             color = ColorTextMuted,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Normal
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(7.dp))
-
                 // Status Dot + Text
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(statusColor)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = statusText,
                         color = statusColor,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }

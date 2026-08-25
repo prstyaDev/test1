@@ -14,6 +14,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +29,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -50,15 +54,48 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val refreshState = rememberPullToRefreshState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (uiState.isLoading) {
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { viewModel.refreshHomeData() },
+        modifier = Modifier.fillMaxSize(),
+        state = refreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = refreshState,
+                isRefreshing = uiState.isRefreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                color = WibufyPrimary,
+                containerColor = Color(0xFF222327)
+            )
+        }
+    ) {
+        if (uiState.isLoading && uiState.page1Items.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = WibufyPrimary)
             }
-        } else if (uiState.error != null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = uiState.error ?: "Unknown error", color = Color.White)
+        } else if (uiState.error != null && uiState.page1Items.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp), 
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = uiState.error ?: "Unknown error", 
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { viewModel.refreshHomeData() },
+                        colors = ButtonDefaults.buttonColors(containerColor = WibufyPrimary)
+                    ) {
+                        Text("Coba Lagi", color = Color.White)
+                    }
+                }
             }
         } else {
             val page1Anime = uiState.page1Items
@@ -232,14 +269,31 @@ fun AnimeGridItem(anime: AnimeItem, isNew: Boolean = false, onClick: () -> Unit)
                 contentScale = ContentScale.Crop
             )
 
+            // Bottom-Only Soft Gradient Overlay for Episode Text (leaves top & center of poster crisp and clear)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color(0xFF161719).copy(alpha = 0.5f),
+                                Color(0xFF161719).copy(alpha = 0.85f)
+                            )
+                        )
+                    )
+            )
+
             // Top Left New Badge
             if (isNew) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .clip(RoundedCornerShape(bottomEnd = 12.dp))
+                        .clip(RoundedCornerShape(bottomEnd = 10.dp))
                         .background(Color(0xFF2A93E6))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = "New",
@@ -250,78 +304,87 @@ fun AnimeGridItem(anime: AnimeItem, isNew: Boolean = false, onClick: () -> Unit)
                 }
             }
 
-            // Top Right Rating Badge
+            // Top Right Rating Badge (More compact and smaller than New badge)
             val scoreValue = anime.score?.takeIf { it.isNotBlank() } ?: "N/A"
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 12.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(bottomStart = 6.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 4.dp, vertical = 1.5.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Rounded.Star,
                         contentDescription = "Rating",
                         tint = WibufyPrimary,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(9.dp)
                     )
-                    Spacer(modifier = Modifier.width(2.dp))
                     Text(
                         text = scoreValue,
                         color = Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Bottom Gradient & Episode Text
-            Box(
+            // Episode Text at Bottom-Left
+            Text(
+                text = "Eps ${anime.episodes ?: "?"}",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color(0xFF161719))
-                        )
-                    )
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = "Eps ${anime.episodes ?: "?"}",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Info Section
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Info Section (Views matching mockup)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Icon(
                 imageVector = Icons.Rounded.Visibility,
                 contentDescription = "Views",
-                tint = Color(0xFFA0A0A0),
-                modifier = Modifier.size(12.dp)
+                tint = Color(0xFF9E9FA4),
+                modifier = Modifier.size(13.5.dp)
             )
-            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "$formattedViews views",
-                color = Color(0xFFA0A0A0),
-                fontSize = 11.sp
+                color = Color(0xFF9E9FA4),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal
             )
         }
 
         Spacer(modifier = Modifier.height(2.dp))
 
+        // Title formatted: First word Bold, rest Normal
+        val fullTitle = anime.title ?: ""
+        val parts = fullTitle.split(" ", limit = 2)
+        val firstWord = parts.firstOrNull() ?: ""
+        val remainingWords = if (parts.size > 1) " " + parts[1] else ""
+
         Text(
-            text = anime.title ?: "",
-            color = Color.White,
+            text = androidx.compose.ui.text.buildAnnotatedString {
+                withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
+                    append(firstWord)
+                }
+                if (remainingWords.isNotEmpty()) {
+                    withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Normal, color = Color.White)) {
+                        append(remainingWords)
+                    }
+                }
+            },
             fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             lineHeight = 16.sp

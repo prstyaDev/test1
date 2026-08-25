@@ -10,17 +10,23 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 object RetrofitClient {
     private const val BASE_URL = "https://wibufy-api.vercel.app/"
 
-    private val moshi = Moshi.Builder()
-        .add(KotlinJsonAdapterFactory())
-        .build()
-
-    private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+    private val moshi: Moshi by lazy {
+        Moshi.Builder()
+            .add(KotlinJsonAdapterFactory())
+            .build()
     }
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor(loggingInterceptor)
-        .build()
+    private val loggingInterceptor: HttpLoggingInterceptor by lazy {
+        HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+    }
+
+    private val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .build()
+    }
 
     val apiService: WibufyApiService by lazy {
         Retrofit.Builder()
@@ -31,3 +37,4 @@ object RetrofitClient {
             .create(WibufyApiService::class.java)
     }
 }
+
