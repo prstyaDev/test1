@@ -1,5 +1,6 @@
 package com.prstyadev.wibufy.ui.navigation
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ fun AppNavigation() {
     val bottomBarRoutes = listOf("home", "schedule", "history", "subscribed", "profile")
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (currentRoute in bottomBarRoutes) {
                 NavigationBar(

@@ -6,12 +6,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -88,15 +90,29 @@ fun VideoPlayerScreen(
     if (showQualityBottomSheet) {
         ModalBottomSheet(onDismissRequest = { showQualityBottomSheet = false }) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Select Quality", style = MaterialTheme.typography.titleLarge)
+                Text("Select Quality", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
                 uiState.streamData?.qualities?.forEach { quality ->
+                    val isSelected = quality.quality.equals(uiState.currentQuality, ignoreCase = true) ||
+                            (quality.url != null && quality.url == uiState.currentQualityUrl)
                     ListItem(
-                        headlineContent = { Text(quality.quality ?: "Unknown") },
-                        modifier = Modifier.clickable {
-                            quality.url?.let {
-                                viewModel.changeQuality(it)
+                        headlineContent = {
+                            Text(
+                                text = quality.quality ?: "Unknown",
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        trailingContent = {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected Quality",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
+                        },
+                        modifier = Modifier.clickable {
+                            viewModel.changeQuality(quality)
                             showQualityBottomSheet = false
                         }
                     )
@@ -120,19 +136,18 @@ fun ExoPlayerView(url: String, modifier: Modifier = Modifier) {
         }
     }
 
-    var currentPosition by remember { mutableStateOf(0L) }
-
-    DisposableEffect(url) {
+    LaunchedEffect(url) {
+        val currentPos = exoPlayer.currentPosition
+        val shouldPlay = exoPlayer.isPlaying || exoPlayer.playWhenReady
         val mediaItem = MediaItem.fromUri(url)
         exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.seekTo(currentPosition)
-        exoPlayer.prepare()
-
-        onDispose {
-            currentPosition = exoPlayer.currentPosition
+        if (currentPos > 0) {
+            exoPlayer.seekTo(currentPos)
         }
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = shouldPlay
     }
-    
+
     DisposableEffect(Unit) {
         onDispose {
             exoPlayer.release()

@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -36,6 +37,7 @@ import com.prstyadev.wibufy.ui.theme.WibufyBackground
 import com.prstyadev.wibufy.ui.theme.WibufyPrimary
 import com.prstyadev.wibufy.ui.theme.WibufySecondary
 import com.prstyadev.wibufy.ui.theme.WibufySurface
+import com.prstyadev.wibufy.utils.singleClick
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,11 +64,7 @@ fun HomeScreen(
             val page2Anime = uiState.page2Items
             
             var isExpanded by remember { mutableStateOf(false) }
-            val displayLimit = if (isExpanded) 24 else 12
-            
-            // Combine items
-            val recentAnime = (page1Anime + page2Anime)
-            val displayedAnime = recentAnime.take(displayLimit)
+            val displayedAnime = if (isExpanded) (page1Anime + page2Anime).take(24) else page1Anime.take(12)
 
             Column(
                 modifier = Modifier
@@ -74,7 +72,13 @@ fun HomeScreen(
                     .statusBarsPadding()
             ) {
                 // Fixed Search Bar at the top
-                Box(modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     SearchBarUI(onClick = onNavigateToSearch)
                 }
 
@@ -117,7 +121,7 @@ fun HomeScreen(
                                 color = Color.White,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { 
+                                modifier = Modifier.singleClick(debounceTime = 400L) { 
                                     isExpanded = !isExpanded 
                                     if (isExpanded) {
                                         viewModel.loadPage2()
@@ -138,28 +142,31 @@ fun SearchBarUI(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .height(52.dp)
+            .height(48.dp)
             .clip(CircleShape)
-            .background(Color(0xFF1E1F23))
-            .clickable { onClick() },
+            .background(Color(0xFF222327))
+            .singleClick(debounceTime = 600L, onClick = onClick)
+            .testTag("home_search_bar"),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = "Search",
-                tint = Color(0xFFA0A0A0),
-                modifier = Modifier.size(24.dp)
+                tint = Color(0xFFCACACA),
+                modifier = Modifier.size(22.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = "Cari Anime Di Sini",
-                color = Color(0xFFA0A0A0),
-                fontSize = 16.sp
+                color = Color(0xFFCACACA),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Normal
             )
         }
     }
@@ -192,7 +199,7 @@ fun SectionHeader() {
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
-                .clickable { /* TODO */ }
+                .singleClick(debounceTime = 600L) { /* TODO */ }
                 .padding(end = 16.dp)
         )
     }
@@ -207,7 +214,7 @@ fun AnimeGridItem(anime: AnimeItem, isNew: Boolean = false, onClick: () -> Unit)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .singleClick(debounceTime = 600L, onClick = onClick)
     ) {
         // Poster Box
         Box(
@@ -242,7 +249,7 @@ fun AnimeGridItem(anime: AnimeItem, isNew: Boolean = false, onClick: () -> Unit)
             }
 
             // Top Right Rating Badge
-            val scoreValue = anime.score?.value?.takeIf { it.isNotBlank() } ?: "N/A"
+            val scoreValue = anime.score?.takeIf { it.isNotBlank() } ?: "N/A"
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -325,7 +332,7 @@ fun AnimeListItem(anime: AnimeItem, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .singleClick(debounceTime = 600L, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {

@@ -14,8 +14,8 @@ interface WibufyApiService {
     @GET("api/samehadaku/anime/{animeId}")
     suspend fun getAnimeDetail(@Path("animeId") animeId: String): BaseResponse<AnimeDetailData>
 
-    @GET("api/samehadaku/search/{query}")
-    suspend fun searchAnime(@Path("query") query: String): BaseResponse<SearchData>
+    @GET("api/samehadaku/search")
+    suspend fun searchAnime(@Query("q") query: String): BaseResponse<SearchData>
 
     @GET("api/stream/{episodeSlug}")
     suspend fun getStreamEngine(@Path("episodeSlug") episodeSlug: String): BaseResponse<StreamData>

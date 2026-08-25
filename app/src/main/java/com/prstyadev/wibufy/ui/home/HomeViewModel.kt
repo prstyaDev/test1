@@ -35,7 +35,7 @@ class HomeViewModel : ViewModel() {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val response = RetrofitClient.apiService.getRecentAnime(page = 1)
-                val originalList = response.data?.animeList?.take(12) ?: emptyList()
+                val originalList = response.data?.animeList ?: emptyList()
                 
                 _uiState.update { 
                     it.copy(
@@ -61,7 +61,7 @@ class HomeViewModel : ViewModel() {
             _uiState.update { it.copy(isLoadingMore = true, error = null) }
             try {
                 val response = RetrofitClient.apiService.getRecentAnime(page = 2)
-                val newItems = response.data?.animeList?.take(12) ?: emptyList()
+                val newItems = response.data?.animeList ?: emptyList()
                 
                 _uiState.update { 
                     it.copy(
