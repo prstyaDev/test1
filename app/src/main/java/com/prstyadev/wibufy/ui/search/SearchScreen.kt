@@ -230,7 +230,7 @@ fun SearchScreen(
                                     imageVector = Icons.Default.ArrowDropDown,
                                     contentDescription = "Pilih Urutan",
                                     tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
 

@@ -94,54 +94,59 @@ fun SubscribedScreen(
 
             // Dropdown Selector
             Box {
-                Surface(
-                    color = Color(0xFF1E1F23),
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E3035)),
+                Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .clickable { sortDropdownExpanded = true }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = uiState.selectedSort.displayName,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = null,
-                            tint = Color(0xFFA0A3AC),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    Text(
+                        text = uiState.selectedSort.displayName,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Pilih Urutan",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
 
-                DropdownMenu(
-                    expanded = sortDropdownExpanded,
-                    onDismissRequest = { sortDropdownExpanded = false },
-                    modifier = Modifier.background(Color(0xFF1E1F23))
+                MaterialTheme(
+                    colorScheme = MaterialTheme.colorScheme.copy(
+                        surface = Color(0xFF1E1F24)
+                    ),
+                    shapes = MaterialTheme.shapes.copy(
+                        extraSmall = RoundedCornerShape(10.dp)
+                    )
                 ) {
-                    SubscribedSortOption.values().forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = option.displayName,
-                                    color = if (option == uiState.selectedSort) WibufyPrimary else Color.White,
-                                    fontWeight = if (option == uiState.selectedSort) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 13.5.sp
-                                )
-                            },
-                            onClick = {
-                                viewModel.setSortOption(option)
-                                sortDropdownExpanded = false
-                            }
-                        )
+                    DropdownMenu(
+                        expanded = sortDropdownExpanded,
+                        onDismissRequest = { sortDropdownExpanded = false },
+                        modifier = Modifier
+                            .background(Color(0xFF1E1F24), RoundedCornerShape(10.dp))
+                            .widthIn(min = 150.dp)
+                    ) {
+                        SubscribedSortOption.values().forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = option.displayName,
+                                        color = if (option == uiState.selectedSort) WibufyPrimary else Color.White,
+                                        fontWeight = if (option == uiState.selectedSort) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 14.sp
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.setSortOption(option)
+                                    sortDropdownExpanded = false
+                                },
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }

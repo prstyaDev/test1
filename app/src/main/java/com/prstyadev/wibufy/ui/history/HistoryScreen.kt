@@ -125,7 +125,7 @@ fun HistoryScreen(
                         .background(Color(0xFF111215)),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Riwayat Menonton",
                         color = Color.White,
@@ -133,15 +133,7 @@ fun HistoryScreen(
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Tap tahan untuk memilih & hapus",
-                        color = Color(0xFF8E8E93),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Normal,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     HorizontalDivider(
                         color = Color(0xFF26272B),
                         thickness = 1.dp
@@ -381,78 +373,72 @@ fun TimelineHistoryCard(
 
             // Info Section
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(top = 4.dp, bottom = 2.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
             ) {
-                Column {
-                    // Top Row: Title (up to 2 lines) & Watch Time
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Text(
-                            text = item.animeTitle ?: "Anime",
-                            color = Color.White,
-                            fontSize = 14.5.sp,
-                            lineHeight = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Text(
-                            text = watchTime,
-                            color = Color(0xFFA0A3AC),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Episode Subtitle
+                // Top Row: Title (up to 2 lines) & Watch Time
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
                     Text(
-                        text = item.episodeName ?: "Episode",
-                        color = Color(0xFF9E9FA6),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Column {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Red Progress Bar
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.dp)),
-                        color = Color(0xFFE50914),
-                        trackColor = Color(0xFF383B44)
+                        text = item.animeTitle ?: "Anime",
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        lineHeight = 16.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
 
-                    Spacer(modifier = Modifier.height(3.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    // Duration Text aligned to end
                     Text(
-                        text = formattedDurationText,
-                        color = Color(0xFF9E9FA6),
+                        text = watchTime,
+                        color = Color(0xFFA0A3AC),
                         fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Normal,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.fillMaxWidth()
+                        fontWeight = FontWeight.Medium
                     )
                 }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Episode Subtitle
+                Text(
+                    text = item.episodeName ?: "Episode",
+                    color = Color(0xFF9E9FA6),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(5.dp))
+
+                // Red Progress Bar
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp)),
+                    color = Color(0xFFE50914),
+                    trackColor = Color(0xFF383B44)
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Duration Text aligned to end
+                Text(
+                    text = formattedDurationText,
+                    color = Color(0xFF9E9FA6),
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Normal,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
                 // Selection check indicator if in selection mode
