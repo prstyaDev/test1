@@ -23,7 +23,7 @@ import coil.compose.AsyncImage
 fun DetailScreen(
     animeId: String,
     onNavigateBack: () -> Unit,
-    onNavigateToPlayer: (String) -> Unit,
+    onNavigateToPlayer: (episodeSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?) -> Unit,
     viewModel: DetailViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -114,10 +114,13 @@ fun DetailScreen(
                     }
                     items(episodes) { episode ->
                         val epNumber = episode.title.toString().toDoubleOrNull()?.toInt()?.toString() ?: episode.title.toString()
+                        val epTitle = "Episode $epNumber"
                         ListItem(
-                            headlineContent = { Text("Episode $epNumber") },
+                            headlineContent = { Text(epTitle) },
                             modifier = Modifier.clickable {
-                                episode.episodeId?.let { onNavigateToPlayer(it) }
+                                episode.episodeId?.let { slug ->
+                                    onNavigateToPlayer(slug, anime.title, epTitle, anime.poster)
+                                }
                             }
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))

@@ -10,9 +10,10 @@ import androidx.room.RoomDatabase
         BookmarkEntity::class,
         ScheduleCacheEntity::class,
         AnimeDetailEntity::class,
-        HomeCacheEntity::class
+        HomeCacheEntity::class,
+        WatchHistoryEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun scheduleCacheDao(): ScheduleCacheDao
     abstract fun animeDetailDao(): AnimeDetailDao
     abstract fun homeCacheDao(): HomeCacheDao
+    abstract fun watchHistoryDao(): WatchHistoryDao
 
     companion object {
         @Volatile

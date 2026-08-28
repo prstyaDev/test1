@@ -47,7 +47,11 @@ data class AnimeItem(
     val samehadakuUrl: String? = null,
     val type: String? = null,
     val status: String? = null,
-    val score: String? = null
+    val score: String? = null,
+    val synopsis: String? = null,
+    val description: String? = null,
+    val genres: String? = null,
+    val alterTitle: String? = null
 )
 
 @JsonClass(generateAdapter = true)

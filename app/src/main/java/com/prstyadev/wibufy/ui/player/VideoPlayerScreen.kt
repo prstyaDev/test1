@@ -42,6 +42,9 @@ import com.prstyadev.wibufy.ui.theme.WibufyPrimary
 @Composable
 fun VideoPlayerScreen(
     episodeSlug: String,
+    animeTitle: String? = null,
+    episodeName: String? = null,
+    posterUrl: String? = null,
     onNavigateBack: () -> Unit,
     viewModel: PlayerViewModel = viewModel()
 ) {
@@ -53,13 +56,28 @@ fun VideoPlayerScreen(
 
     var showQualityBottomSheet by remember { mutableStateOf(false) }
 
+    val resolvedAnimeTitle = remember(uiState.streamData?.title, animeTitle) {
+        animeTitle ?: uiState.streamData?.title ?: "Anime"
+    }
+    val resolvedEpisodeName = remember(uiState.streamData?.title, episodeName) {
+        episodeName ?: run {
+            val title = uiState.streamData?.title ?: ""
+            if (title.contains("Episode", ignoreCase = true)) {
+                val match = Regex("(?i)Episode\\s*\\d+").find(title)
+                match?.value ?: "Episode"
+            } else {
+                "Episode"
+            }
+        }
+    }
+
     Scaffold(
         containerColor = WibufyBackground,
         topBar = {
             TopAppBar(
                 title = { 
                     Text(
-                        text = uiState.streamData?.title ?: "Memutar Video",
+                        text = uiState.streamData?.title ?: resolvedAnimeTitle,
                         maxLines = 1,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -148,6 +166,17 @@ fun VideoPlayerScreen(
                     if (url != null) {
                         ExoPlayerView(
                             url = url,
+                            initialPositionMs = uiState.initialPositionMs,
+                            onSaveProgress = { pos, dur ->
+                                viewModel.saveProgress(
+                                    episodeSlug = episodeSlug,
+                                    animeTitle = resolvedAnimeTitle,
+                                    episodeName = resolvedEpisodeName,
+                                    posterUrl = posterUrl,
+                                    lastPositionMs = pos,
+                                    totalDurationMs = dur
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(16f / 9f)
@@ -254,7 +283,12 @@ fun VideoPlayerScreen(
 
 @OptIn(UnstableApi::class)
 @Composable
-fun ExoPlayerView(url: String, modifier: Modifier = Modifier) {
+fun ExoPlayerView(
+    url: String,
+    initialPositionMs: Long = 0L,
+    onSaveProgress: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -268,12 +302,19 @@ fun ExoPlayerView(url: String, modifier: Modifier = Modifier) {
     }
 
     var isBuffering by remember { mutableStateOf(false) }
+    var hasAppliedInitialSeek by remember { mutableStateOf(false) }
 
-    // ExoPlayer Listener for Buffering State
+    // ExoPlayer Listener for Buffering State & Seek on Ready
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
+                if (playbackState == Player.STATE_READY && !hasAppliedInitialSeek) {
+                    if (initialPositionMs > 0 && (exoPlayer.duration <= 0 || initialPositionMs < exoPlayer.duration - 5000)) {
+                        exoPlayer.seekTo(initialPositionMs)
+                    }
+                    hasAppliedInitialSeek = true
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -282,13 +323,30 @@ fun ExoPlayerView(url: String, modifier: Modifier = Modifier) {
         }
     }
 
-    // Lifecycle Auto-Pause and Auto-Resume
+    // Periodic Progress Auto-Save Tracker (Every 5 seconds)
+    LaunchedEffect(exoPlayer) {
+        while (true) {
+            kotlinx.coroutines.delay(5000L)
+            val currentPos = exoPlayer.currentPosition
+            val duration = exoPlayer.duration
+            if (currentPos > 0 && duration > 0) {
+                onSaveProgress(currentPos, duration)
+            }
+        }
+    }
+
+    // Lifecycle Auto-Pause and Auto-Resume + Progress Saving
     DisposableEffect(lifecycleOwner, exoPlayer) {
         var wasPlayingBeforePause = true
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     wasPlayingBeforePause = exoPlayer.isPlaying || exoPlayer.playWhenReady
+                    val currentPos = exoPlayer.currentPosition
+                    val duration = exoPlayer.duration
+                    if (currentPos > 0 && duration > 0) {
+                        onSaveProgress(currentPos, duration)
+                    }
                     exoPlayer.pause()
                 }
                 Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
@@ -297,6 +355,11 @@ fun ExoPlayerView(url: String, modifier: Modifier = Modifier) {
                     }
                 }
                 Lifecycle.Event.ON_DESTROY -> {
+                    val currentPos = exoPlayer.currentPosition
+                    val duration = exoPlayer.duration
+                    if (currentPos > 0 && duration > 0) {
+                        onSaveProgress(currentPos, duration)
+                    }
                     exoPlayer.release()
                 }
                 else -> {}
@@ -304,6 +367,11 @@ fun ExoPlayerView(url: String, modifier: Modifier = Modifier) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            val currentPos = exoPlayer.currentPosition
+            val duration = exoPlayer.duration
+            if (currentPos > 0 && duration > 0) {
+                onSaveProgress(currentPos, duration)
+            }
             lifecycleOwner.lifecycle.removeObserver(observer)
             exoPlayer.release()
         }

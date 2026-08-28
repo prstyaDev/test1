@@ -400,7 +400,7 @@ fun ScheduleCardItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(114.dp),
+                .height(122.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. Vertical Stripe Far-Left (Sharp 90-degree edge)
@@ -432,7 +432,7 @@ fun ScheduleCardItem(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(78.dp)
+                    .width(80.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFF161719))
             ) {

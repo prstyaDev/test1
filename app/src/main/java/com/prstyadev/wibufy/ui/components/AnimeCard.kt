@@ -205,7 +205,7 @@ fun AnimeCard(
                     .align(Alignment.TopEnd)
                     .clip(RoundedCornerShape(bottomStart = 6.dp))
                     .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                    .padding(horizontal = 4.dp, vertical = 0.5.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

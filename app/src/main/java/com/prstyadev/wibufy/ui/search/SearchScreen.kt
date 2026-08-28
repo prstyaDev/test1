@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.Star
@@ -49,6 +50,7 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val focusManager = LocalFocusManager.current
+    var showSortMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -199,7 +201,7 @@ fun SearchScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -210,12 +212,63 @@ fun SearchScreen(
                             fontWeight = FontWeight.Bold
                         )
 
-                        Text(
-                            text = "Relevant ▾",
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { showSortMenu = true }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = uiState.sortOption.displayName,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Pilih Urutan",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            MaterialTheme(
+                                colorScheme = MaterialTheme.colorScheme.copy(
+                                    surface = Color(0xFF1E1F24)
+                                ),
+                                shapes = MaterialTheme.shapes.copy(
+                                    extraSmall = RoundedCornerShape(10.dp)
+                                )
+                            ) {
+                                DropdownMenu(
+                                    expanded = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false },
+                                    modifier = Modifier
+                                        .background(Color(0xFF1E1F24), RoundedCornerShape(10.dp))
+                                        .widthIn(min = 140.dp)
+                                ) {
+                                    SearchSortOption.values().forEach { option ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = option.displayName,
+                                                    color = if (uiState.sortOption == option) WibufyPrimary else Color.White,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = if (uiState.sortOption == option) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                viewModel.setSortOption(option)
+                                                showSortMenu = false
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Vertical Search Result List
@@ -260,25 +313,30 @@ fun SearchResultItem(
     anime: AnimeItem,
     onClick: () -> Unit
 ) {
-    val pseudoViews = kotlin.math.abs((anime.animeId ?: anime.title ?: "").hashCode() % 1500) / 10f + 1.2f
-    val formattedViews = String.format(Locale.US, "%.1fK", pseudoViews)
-    val scoreValue = anime.score ?: "N/A"
+    val hash = kotlin.math.abs((anime.animeId ?: anime.title ?: "").hashCode())
+    val formattedViews = when {
+        hash % 7 == 0 -> String.format(Locale.US, "%.1fM", (hash % 180 + 15) / 10f)
+        hash % 3 == 0 -> String.format(Locale.US, "%.1fM", (hash % 60 + 10) / 10f)
+        else -> String.format(Locale.US, "%.1fK", (hash % 900 + 100) / 10f)
+    }
+    val scoreValue = anime.score
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF1E1F23))
+            .clip(RoundedCornerShape(8.dp))
             .singleClick(debounceTime = 600L, onClick = onClick)
-            .padding(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        // Left: Poster with Rating Badge (Top Right) & Episode Badge (Bottom Left/Center)
+        // Left: Poster with Rating Badge (Top Right) & Episode overlay (Bottom Left)
         Box(
             modifier = Modifier
-                .width(100.dp)
-                .height(135.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .width(92.dp)
+                .height(130.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF1E1F23))
         ) {
             AsyncImage(
                 model = anime.poster,
@@ -288,47 +346,52 @@ fun SearchResultItem(
             )
 
             // Rating Badge (Top Right)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 8.dp))
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.Star,
-                        contentDescription = "Rating",
-                        tint = WibufyPrimary,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(
-                        text = scoreValue,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+            if (!scoreValue.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .clip(RoundedCornerShape(bottomStart = 6.dp))
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 4.dp, vertical = 0.5.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Star,
+                            contentDescription = "Rating",
+                            tint = WibufyPrimary,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = scoreValue,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
-            // Episode Badge (Bottom)
+            // Episode overlay (Bottom Start)
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color(0xDD161719))
+                            colors = listOf(Color.Transparent, Color(0xCC000000))
                         )
                     )
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .padding(start = 6.dp, end = 6.dp, bottom = 4.dp, top = 12.dp)
             ) {
                 Text(
                     text = "Eps ${anime.episodes ?: "?"}",
                     color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
                 )
             }
         }
@@ -337,72 +400,65 @@ fun SearchResultItem(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .align(Alignment.CenterVertically)
+                .padding(top = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Text(
                 text = anime.title ?: "",
                 color = Color.White,
-                fontSize = 15.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Views & Type/Status
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.Visibility,
-                        contentDescription = "Views",
-                        tint = Color(0xFFA0A0A0),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "$formattedViews views",
-                        color = Color(0xFFA0A0A0),
-                        fontSize = 11.sp
-                    )
-                }
-
-                if (!anime.status.isNullOrBlank() || !anime.type.isNullOrBlank()) {
-                    Text(
-                        text = "•",
-                        color = Color(0xFF6B6E74),
-                        fontSize = 11.sp
-                    )
-                    Text(
-                        text = listOfNotNull(anime.type, anime.status).joinToString(" • "),
-                        color = Color(0xFFA0A0A0),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            val subtitle = anime.alterTitle
+            if (!subtitle.isNullOrBlank() && !subtitle.equals(anime.title, ignoreCase = true)) {
+                Text(
+                    text = subtitle,
+                    color = Color(0xFFA0A0A0),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            // Views Row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 1.dp, bottom = 2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Visibility,
+                    contentDescription = "Views",
+                    tint = Color(0xFF9E9E9E),
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = "$formattedViews views",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
 
-            // Release or Summary text
-            val infoText = when {
-                !anime.releasedOn.isNullOrBlank() -> "Dirilis pada: ${anime.releasedOn}"
-                !anime.type.isNullOrBlank() -> "Tipe: ${anime.type}"
-                else -> "Tonton anime ${anime.title ?: ""} subtitle Indonesia dengan kualitas terbaik."
+            // Synopsis / Description text
+            val desc = when {
+                !anime.synopsis.isNullOrBlank() -> anime.synopsis
+                !anime.description.isNullOrBlank() -> anime.description
+                !anime.genres.isNullOrBlank() -> "Genre: ${anime.genres}. Tonton anime ${anime.title ?: ""} subtitle Indonesia terlengkap."
+                else -> "Tonton streaming anime ${anime.title ?: ""} subtitle Indonesia online gratis kualitas HD terlengkap hanya di Wibufy."
             }
 
             Text(
-                text = infoText,
-                color = Color(0xFFCACACA),
-                fontSize = 12.sp,
-                maxLines = 3,
+                text = desc,
+                color = Color(0xFFAAAAAA),
+                fontSize = 12.5.sp,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp
+                lineHeight = 17.sp
             )
         }
     }

@@ -13,17 +13,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class SubscribedSortOption(val displayName: String) {
-    NEW_UPDATE("New Update"),
+    ALL("Semua"),
+    ONGOING("Ongoing"),
+    COMPLETED("Completed"),
+    NEW_UPDATE("Terbaru"),
     ALPHABETICAL("A - Z"),
-    RATING("Rating"),
-    OLDEST("Oldest")
+    ALPHABETICAL_DESC("Z - A"),
+    RATING("Rating Tertinggi"),
+    OLDEST("Terlama")
 }
 
 data class SubscribedUiState(
     val totalCount: Int = 0,
     val ongoingList: List<SubscribedAnimeEntity> = emptyList(),
     val completedList: List<SubscribedAnimeEntity> = emptyList(),
-    val selectedSort: SubscribedSortOption = SubscribedSortOption.NEW_UPDATE,
+    val selectedSort: SubscribedSortOption = SubscribedSortOption.ALL,
     val isLoading: Boolean = false
 )
 
@@ -61,34 +65,62 @@ class SubscribedViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun applyGroupingAndSorting() {
-        val sortedList = when (_uiState.value.selectedSort) {
-            SubscribedSortOption.NEW_UPDATE -> allBookmarksRaw.sortedByDescending { it.timestamp }
-            SubscribedSortOption.ALPHABETICAL -> allBookmarksRaw.sortedBy { it.title.lowercase() }
-            SubscribedSortOption.RATING -> allBookmarksRaw.sortedByDescending { 
-                it.score?.toDoubleOrNull() ?: 0.0 
+        val sortOption = _uiState.value.selectedSort
+
+        // Filter based on option if filtering is selected
+        val filteredList = when (sortOption) {
+            SubscribedSortOption.ONGOING -> allBookmarksRaw.filter { isOngoingStatus(it.status) }
+            SubscribedSortOption.COMPLETED -> allBookmarksRaw.filter { !isOngoingStatus(it.status) }
+            else -> allBookmarksRaw
+        }
+
+        // Sort the filtered list
+        val sortedList = when (sortOption) {
+            SubscribedSortOption.ALPHABETICAL -> filteredList.sortedBy { it.title.lowercase() }
+            SubscribedSortOption.ALPHABETICAL_DESC -> filteredList.sortedByDescending { it.title.lowercase() }
+            SubscribedSortOption.RATING -> filteredList.sortedByDescending {
+                it.score?.toDoubleOrNull() ?: 0.0
             }
-            SubscribedSortOption.OLDEST -> allBookmarksRaw.sortedBy { it.timestamp }
+            SubscribedSortOption.OLDEST -> filteredList.sortedBy { it.timestamp }
+            SubscribedSortOption.ALL,
+            SubscribedSortOption.ONGOING,
+            SubscribedSortOption.COMPLETED,
+            SubscribedSortOption.NEW_UPDATE -> filteredList.sortedByDescending { it.timestamp }
         }
 
-        val ongoing = sortedList.filter { 
-            val st = it.status?.trim()?.lowercase() ?: ""
-            st.contains("ongoing") || 
-            st.contains("airing") || 
-            st.contains("tayang") || 
-            st.contains("sedang") ||
-            st.isEmpty() // Default to ongoing if unknown/empty
-        }
+        val ongoing: List<SubscribedAnimeEntity>
+        val completed: List<SubscribedAnimeEntity>
 
-        val completed = sortedList.filter { 
-            !ongoing.contains(it)
+        when (sortOption) {
+            SubscribedSortOption.ONGOING -> {
+                ongoing = sortedList
+                completed = emptyList()
+            }
+            SubscribedSortOption.COMPLETED -> {
+                ongoing = emptyList()
+                completed = sortedList
+            }
+            else -> {
+                ongoing = sortedList.filter { isOngoingStatus(it.status) }
+                completed = sortedList.filter { !isOngoingStatus(it.status) }
+            }
         }
 
         _uiState.update {
             it.copy(
-                totalCount = sortedList.size,
+                totalCount = filteredList.size,
                 ongoingList = ongoing,
                 completedList = completed
             )
         }
+    }
+
+    private fun isOngoingStatus(status: String?): Boolean {
+        val st = status?.trim()?.lowercase() ?: ""
+        return st.contains("ongoing") ||
+                st.contains("airing") ||
+                st.contains("tayang") ||
+                st.contains("sedang") ||
+                st.isEmpty()
     }
 }

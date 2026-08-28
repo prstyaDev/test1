@@ -94,25 +94,38 @@ fun SubscribedScreen(
 
             // Dropdown Selector
             Box {
-                Row(
+                Surface(
+                    color = Color(0xFF1E1F23),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E3035)),
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { sortDropdownExpanded = true }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "${uiState.selectedSort.displayName} ▾",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = uiState.selectedSort.displayName,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                            tint = Color(0xFFA0A3AC),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
 
                 DropdownMenu(
                     expanded = sortDropdownExpanded,
                     onDismissRequest = { sortDropdownExpanded = false },
-                    modifier = Modifier.background(WibufySurface)
+                    modifier = Modifier.background(Color(0xFF1E1F23))
                 ) {
                     SubscribedSortOption.values().forEach { option ->
                         DropdownMenuItem(
@@ -120,7 +133,8 @@ fun SubscribedScreen(
                                 Text(
                                     text = option.displayName,
                                     color = if (option == uiState.selectedSort) WibufyPrimary else Color.White,
-                                    fontWeight = if (option == uiState.selectedSort) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (option == uiState.selectedSort) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.5.sp
                                 )
                             },
                             onClick = {

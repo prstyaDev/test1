@@ -26,9 +26,13 @@ import com.prstyadev.wibufy.ui.detail.DetailScreen
 import com.prstyadev.wibufy.ui.search.SearchScreen
 import com.prstyadev.wibufy.ui.bookmark.BookmarkScreen
 import com.prstyadev.wibufy.ui.subscribed.SubscribedScreen
+import com.prstyadev.wibufy.ui.history.HistoryScreen
 import com.prstyadev.wibufy.ui.player.VideoPlayerScreen
 import com.prstyadev.wibufy.ui.schedule.ScheduleScreen
 import com.prstyadev.wibufy.ui.components.ComingSoonScreen
+import java.net.URLEncoder
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 @Composable
 fun AppNavigation() {
@@ -140,7 +144,14 @@ fun AppNavigation() {
             }
             
             composable("history") {
-                ComingSoonScreen(title = "History Coming Soon")
+                HistoryScreen(
+                    onNavigateToPlayer = { episodeSlug, animeTitle, episodeName, posterUrl ->
+                        val encTitle = URLEncoder.encode(animeTitle ?: "", StandardCharsets.UTF_8.toString())
+                        val encEp = URLEncoder.encode(episodeName ?: "", StandardCharsets.UTF_8.toString())
+                        val encPoster = URLEncoder.encode(posterUrl ?: "", StandardCharsets.UTF_8.toString())
+                        navController.navigate("player/$episodeSlug?animeTitle=$encTitle&episodeName=$encEp&posterUrl=$encPoster")
+                    }
+                )
             }
             
             composable("subscribed") {
@@ -164,8 +175,11 @@ fun AppNavigation() {
                 DetailScreen(
                     animeId = animeId,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToPlayer = { episodeSlug ->
-                        navController.navigate("player/$episodeSlug")
+                    onNavigateToPlayer = { episodeSlug, animeTitle, episodeName, posterUrl ->
+                        val encTitle = URLEncoder.encode(animeTitle ?: "", StandardCharsets.UTF_8.toString())
+                        val encEp = URLEncoder.encode(episodeName ?: "", StandardCharsets.UTF_8.toString())
+                        val encPoster = URLEncoder.encode(posterUrl ?: "", StandardCharsets.UTF_8.toString())
+                        navController.navigate("player/$episodeSlug?animeTitle=$encTitle&episodeName=$encEp&posterUrl=$encPoster")
                     }
                 )
             }
@@ -180,12 +194,40 @@ fun AppNavigation() {
             }
             
             composable(
-                route = "player/{episodeSlug}",
-                arguments = listOf(navArgument("episodeSlug") { type = NavType.StringType })
+                route = "player/{episodeSlug}?animeTitle={animeTitle}&episodeName={episodeName}&posterUrl={posterUrl}",
+                arguments = listOf(
+                    navArgument("episodeSlug") { type = NavType.StringType },
+                    navArgument("animeTitle") { 
+                        type = NavType.StringType 
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("episodeName") { 
+                        type = NavType.StringType 
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("posterUrl") { 
+                        type = NavType.StringType 
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
             ) { backStackEntry ->
                 val episodeSlug = backStackEntry.arguments?.getString("episodeSlug") ?: ""
+                val rawAnimeTitle = backStackEntry.arguments?.getString("animeTitle")
+                val rawEpisodeName = backStackEntry.arguments?.getString("episodeName")
+                val rawPosterUrl = backStackEntry.arguments?.getString("posterUrl")
+
+                val animeTitle = rawAnimeTitle?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.toString()) }?.takeIf { it.isNotEmpty() }
+                val episodeName = rawEpisodeName?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.toString()) }?.takeIf { it.isNotEmpty() }
+                val posterUrl = rawPosterUrl?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.toString()) }?.takeIf { it.isNotEmpty() }
+
                 VideoPlayerScreen(
                     episodeSlug = episodeSlug,
+                    animeTitle = animeTitle,
+                    episodeName = episodeName,
+                    posterUrl = posterUrl,
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

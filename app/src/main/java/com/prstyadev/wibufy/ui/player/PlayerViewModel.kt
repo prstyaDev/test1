@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.prstyadev.wibufy.data.QualityItem
 import com.prstyadev.wibufy.data.RetrofitClient
 import com.prstyadev.wibufy.data.StreamData
+import com.prstyadev.wibufy.data.WatchHistoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,11 +21,13 @@ data class PlayerUiState(
     val streamData: StreamData? = null,
     val currentQuality: String? = null,
     val currentQualityUrl: String? = null,
+    val initialPositionMs: Long = 0L,
     val error: String? = null
 )
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("wibufy_player_prefs", Context.MODE_PRIVATE)
+    private val historyRepository = WatchHistoryRepository(application)
 
     companion object {
         const val PREF_SELECTED_QUALITY = "PREF_SELECTED_QUALITY"
@@ -62,24 +65,28 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun loadStream(episodeSlug: String) {
-        // Check cache first
-        val cachedStream = streamCache[episodeSlug]
-        if (cachedStream != null) {
-            val (qualityName, qualityUrl) = selectBestQuality(cachedStream)
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    streamData = cachedStream,
-                    currentQuality = qualityName,
-                    currentQualityUrl = qualityUrl,
-                    error = null
-                )
-            }
-            return
-        }
-
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            val savedHistory = historyRepository.getHistory(episodeSlug)
+            val initialPos = savedHistory?.lastPositionMs ?: 0L
+
+            // Check cache first
+            val cachedStream = streamCache[episodeSlug]
+            if (cachedStream != null) {
+                val (qualityName, qualityUrl) = selectBestQuality(cachedStream)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        streamData = cachedStream,
+                        currentQuality = qualityName,
+                        currentQualityUrl = qualityUrl,
+                        initialPositionMs = initialPos,
+                        error = null
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update { it.copy(isLoading = true, error = null, initialPositionMs = initialPos) }
             try {
                 val response = RetrofitClient.apiService.getStreamEngine(episodeSlug)
                 val data = response.data
@@ -94,7 +101,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         isLoading = false,
                         streamData = data,
                         currentQuality = qualityName,
-                        currentQualityUrl = qualityUrl
+                        currentQualityUrl = qualityUrl,
+                        initialPositionMs = initialPos
                     )
                 }
             } catch (e: UnknownHostException) {
@@ -104,6 +112,27 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "Terjadi kesalahan") }
             }
+        }
+    }
+
+    fun saveProgress(
+        episodeSlug: String,
+        animeTitle: String?,
+        episodeName: String?,
+        posterUrl: String?,
+        lastPositionMs: Long,
+        totalDurationMs: Long
+    ) {
+        if (lastPositionMs <= 0 && totalDurationMs <= 0) return
+        viewModelScope.launch {
+            historyRepository.saveProgress(
+                episodeSlug = episodeSlug,
+                animeTitle = animeTitle,
+                episodeName = episodeName,
+                posterUrl = posterUrl,
+                lastPositionMs = lastPositionMs,
+                totalDurationMs = totalDurationMs
+            )
         }
     }
 
