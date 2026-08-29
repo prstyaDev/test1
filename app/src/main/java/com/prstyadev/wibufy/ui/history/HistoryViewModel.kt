@@ -3,6 +3,8 @@ package com.prstyadev.wibufy.ui.history
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.prstyadev.wibufy.data.AppDatabase
+import com.prstyadev.wibufy.data.BookmarkEntity
 import com.prstyadev.wibufy.data.WatchHistoryEntity
 import com.prstyadev.wibufy.data.WatchHistoryRepository
 import kotlinx.coroutines.flow.*
@@ -20,11 +22,13 @@ data class HistoryUiState(
     val rawList: List<WatchHistoryEntity> = emptyList(),
     val isSelectionMode: Boolean = false,
     val selectedSlugs: Set<String> = emptySet(),
+    val subscribedAnimeList: List<BookmarkEntity> = emptyList(),
     val isLoading: Boolean = true
 )
 
 class HistoryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = WatchHistoryRepository(application)
+    private val bookmarkDao = AppDatabase.getDatabase(application).bookmarkDao()
 
     private val _isSelectionMode = MutableStateFlow(false)
     private val _selectedSlugs = MutableStateFlow<Set<String>>(emptySet())
@@ -32,14 +36,16 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     val uiState: StateFlow<HistoryUiState> = combine(
         repository.allHistory,
         _isSelectionMode,
-        _selectedSlugs
-    ) { historyList, isSelection, selected ->
+        _selectedSlugs,
+        bookmarkDao.getAllBookmarks()
+    ) { historyList, isSelection, selected, bookmarks ->
         val groups = groupHistoryByDate(historyList)
         HistoryUiState(
             groups = groups,
             rawList = historyList,
             isSelectionMode = isSelection,
             selectedSlugs = selected,
+            subscribedAnimeList = bookmarks,
             isLoading = false
         )
     }.stateIn(

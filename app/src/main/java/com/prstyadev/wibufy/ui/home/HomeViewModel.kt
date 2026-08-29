@@ -4,8 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.prstyadev.wibufy.data.AnimeItem
+import com.prstyadev.wibufy.data.AppDatabase
 import com.prstyadev.wibufy.data.HomeRepository
 import com.prstyadev.wibufy.data.RecentData
+import com.prstyadev.wibufy.data.WatchHistoryEntity
+import com.prstyadev.wibufy.data.WatchHistoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,17 +24,40 @@ data class HomeUiState(
     val recentData: RecentData? = null,
     val page1Items: List<AnimeItem> = emptyList(),
     val page2Items: List<AnimeItem> = emptyList(),
+    val watchHistory: List<WatchHistoryEntity> = emptyList(),
+    val subscribedAnimeIds: Set<String> = emptySet(),
     val error: String? = null
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val homeRepository = HomeRepository(application)
+    private val watchHistoryRepository = WatchHistoryRepository(application)
+    private val bookmarkDao = AppDatabase.getDatabase(application).bookmarkDao()
 
     private val _uiState = MutableStateFlow(HomeUiState(isLoading = true))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     init {
+        observeWatchHistory()
+        observeSubscribedAnime()
         loadInitialHomeData()
+    }
+
+    private fun observeWatchHistory() {
+        viewModelScope.launch {
+            watchHistoryRepository.allHistory.collect { historyList ->
+                _uiState.update { it.copy(watchHistory = historyList.take(15)) }
+            }
+        }
+    }
+
+    private fun observeSubscribedAnime() {
+        viewModelScope.launch {
+            bookmarkDao.getAllBookmarks().collect { bookmarkList ->
+                val ids = bookmarkList.map { it.animeId }.toSet()
+                _uiState.update { it.copy(subscribedAnimeIds = ids) }
+            }
+        }
     }
 
     private fun loadInitialHomeData() {

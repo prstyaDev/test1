@@ -131,6 +131,19 @@ fun AppNavigation() {
                             launchSingleTop = true
                             restoreState = true
                         }
+                    },
+                    onNavigateToHistory = {
+                        navController.navigate("history") {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onNavigateToPlayer = { episodeSlug, animeTitle, episodeName, posterUrl ->
+                        val encTitle = URLEncoder.encode(animeTitle ?: "", StandardCharsets.UTF_8.toString())
+                        val encEp = URLEncoder.encode(episodeName ?: "", StandardCharsets.UTF_8.toString())
+                        val encPoster = URLEncoder.encode(posterUrl ?: "", StandardCharsets.UTF_8.toString())
+                        navController.navigate("player/$episodeSlug?animeTitle=$encTitle&episodeName=$encEp&posterUrl=$encPoster")
                     }
                 )
             }
@@ -145,11 +158,8 @@ fun AppNavigation() {
             
             composable("history") {
                 HistoryScreen(
-                    onNavigateToPlayer = { episodeSlug, animeTitle, episodeName, posterUrl ->
-                        val encTitle = URLEncoder.encode(animeTitle ?: "", StandardCharsets.UTF_8.toString())
-                        val encEp = URLEncoder.encode(episodeName ?: "", StandardCharsets.UTF_8.toString())
-                        val encPoster = URLEncoder.encode(posterUrl ?: "", StandardCharsets.UTF_8.toString())
-                        navController.navigate("player/$episodeSlug?animeTitle=$encTitle&episodeName=$encEp&posterUrl=$encPoster")
+                    onNavigateToDetail = { animeId ->
+                        navController.navigate("detail/$animeId")
                     }
                 )
             }

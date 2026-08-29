@@ -82,10 +82,10 @@ fun SearchScreen(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(48.dp)
+                    .height(54.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF222327))
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 18.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Row(
@@ -96,10 +96,10 @@ fun SearchScreen(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search Icon",
                         tint = Color(0xFFCACACA),
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(24.dp)
                     )
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
 
                     Box(modifier = Modifier.weight(1f)) {
                         if (uiState.query.isEmpty()) {
@@ -116,7 +116,7 @@ fun SearchScreen(
                             textStyle = TextStyle(
                                 color = Color.White,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Normal
+                                fontWeight = FontWeight.Medium
                             ),
                             cursorBrush = SolidColor(Color(0xFFCACACA)),
                             singleLine = true,

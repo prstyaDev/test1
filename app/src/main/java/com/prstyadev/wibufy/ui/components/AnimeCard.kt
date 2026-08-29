@@ -4,8 +4,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Visibility
@@ -36,6 +38,7 @@ import java.util.Locale
 fun AnimeGridItem(
     anime: AnimeItem,
     showBadge: Boolean = false,
+    isSubscribed: Boolean = false,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
@@ -47,6 +50,7 @@ fun AnimeGridItem(
         episodes = anime.episodes,
         score = anime.score,
         showBadge = showBadge,
+        isSubscribed = isSubscribed,
         modifier = modifier,
         onLongClick = onLongClick,
         onClick = onClick
@@ -57,6 +61,7 @@ fun AnimeGridItem(
 fun AnimeGridItem(
     bookmark: BookmarkEntity,
     showBadge: Boolean = false,
+    isSubscribed: Boolean = true,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
@@ -69,6 +74,7 @@ fun AnimeGridItem(
         score = bookmark.score,
         views = bookmark.views,
         showBadge = showBadge,
+        isSubscribed = isSubscribed,
         modifier = modifier,
         onLongClick = onLongClick,
         onClick = onClick
@@ -87,6 +93,7 @@ fun AnimeCard(
     showBadge: Boolean = false,
     badgeText: String = "New",
     badgeColor: Color = Color(0xFF2A93E6),
+    isSubscribed: Boolean = false,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
@@ -236,6 +243,26 @@ fun AnimeCard(
                     .align(Alignment.BottomStart)
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             )
+
+            // Layer 6: Subscribe Badge at Bottom-Right (Only shown if isSubscribed is true)
+            if (isSubscribed) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 6.dp, bottom = 6.dp)
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2A93E6)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Subscriptions,
+                        contentDescription = "Subscribed",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(6.dp))

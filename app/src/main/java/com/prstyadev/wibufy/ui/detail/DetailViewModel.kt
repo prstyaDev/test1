@@ -7,6 +7,7 @@ import com.prstyadev.wibufy.data.AnimeDetailData
 import com.prstyadev.wibufy.data.AppDatabase
 import com.prstyadev.wibufy.data.BookmarkEntity
 import com.prstyadev.wibufy.data.DetailRepository
+import com.prstyadev.wibufy.data.WatchHistoryEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +20,8 @@ data class DetailUiState(
     val isLoading: Boolean = true,
     val detailData: AnimeDetailData? = null,
     val error: String? = null,
-    val isBookmarked: Boolean = false
+    val isBookmarked: Boolean = false,
+    val lastWatchedHistory: WatchHistoryEntity? = null
 )
 
 class DetailViewModel(application: Application) : AndroidViewModel(application) {
@@ -27,12 +29,16 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
 
     private val bookmarkDao = AppDatabase.getDatabase(application).bookmarkDao()
+    private val watchHistoryDao = AppDatabase.getDatabase(application).watchHistoryDao()
     private val detailRepository = DetailRepository(application)
+    private var currentAnimeId: String = ""
 
     fun loadAnimeDetail(animeId: String) {
         if (animeId.isBlank()) return
+        currentAnimeId = animeId
         viewModelScope.launch {
             checkBookmarkStatus(animeId)
+            observeWatchHistory(animeId)
 
             // 1. Tampilkan data dari Room DB terlebih dahulu jika sudah pernah di-fetch sebelumnya (0 ms)
             val cachedData = try {
@@ -84,6 +90,23 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         )
                     }
                 }
+            }
+        }
+    }
+
+    private fun observeWatchHistory(animeId: String) {
+        viewModelScope.launch {
+            watchHistoryDao.getAllHistory().collect { historyList ->
+                val match = historyList.firstOrNull { item ->
+                    val derivedSlug = item.episodeSlug.replace(Regex("-episode-\\d+.*"), "").trim()
+                    derivedSlug.equals(animeId, ignoreCase = true) ||
+                    animeId.contains(derivedSlug, ignoreCase = true) ||
+                    derivedSlug.contains(animeId, ignoreCase = true) ||
+                    (!item.animeTitle.isNullOrBlank() && (
+                        item.animeTitle.equals(_uiState.value.detailData?.anime?.title, ignoreCase = true)
+                    ))
+                }
+                _uiState.update { it.copy(lastWatchedHistory = match) }
             }
         }
     }

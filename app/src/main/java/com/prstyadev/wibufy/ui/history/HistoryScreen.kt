@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.prstyadev.wibufy.data.BookmarkEntity
 import com.prstyadev.wibufy.data.WatchHistoryEntity
 import com.prstyadev.wibufy.ui.theme.WibufyBackground
 import com.prstyadev.wibufy.ui.theme.WibufyPrimary
@@ -45,14 +47,14 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    onNavigateToPlayer: (episodeSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?) -> Unit,
+    onNavigateToDetail: (animeId: String) -> Unit,
     viewModel: HistoryViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = Color(0xFF111215),
+        containerColor = WibufyBackground,
         contentColor = Color.White,
         topBar = {
             if (uiState.isSelectionMode) {
@@ -60,6 +62,7 @@ fun HistoryScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFF1A1D24))
+                        .statusBarsPadding()
                 ) {
                     TopAppBar(
                         title = {
@@ -122,18 +125,19 @@ fun HistoryScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF111215)),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .background(WibufyBackground)
+                        .statusBarsPadding()
                 ) {
-                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Riwayat Menonton",
                         color = Color.White,
-                        fontSize = 19.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp, bottom = 14.dp),
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(14.dp))
                     HorizontalDivider(
                         color = Color(0xFF26272B),
                         thickness = 1.dp
@@ -145,7 +149,7 @@ fun HistoryScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF111215))
+                .background(WibufyBackground)
                 .padding(paddingValues)
         ) {
             when {
@@ -205,21 +209,19 @@ fun HistoryScreen(
                                 key = { it.episodeSlug }
                             ) { historyItem ->
                                 val isSelected = uiState.selectedSlugs.contains(historyItem.episodeSlug)
+                                val isSubscribed = isHistoryItemSubscribed(historyItem, uiState.subscribedAnimeList)
 
                                 TimelineHistoryCard(
                                     item = historyItem,
+                                    isSubscribed = isSubscribed,
                                     isSelectionMode = uiState.isSelectionMode,
                                     isSelected = isSelected,
                                     onClick = {
                                         if (uiState.isSelectionMode) {
                                             viewModel.toggleSelection(historyItem.episodeSlug)
                                         } else {
-                                            onNavigateToPlayer(
-                                                historyItem.episodeSlug,
-                                                historyItem.animeTitle,
-                                                historyItem.episodeName,
-                                                historyItem.posterUrl
-                                            )
+                                            val derivedAnimeId = historyItem.episodeSlug.replace(Regex("-episode-\\d+.*"), "").trim()
+                                            onNavigateToDetail(derivedAnimeId)
                                         }
                                     },
                                     onLongClick = {
@@ -302,10 +304,25 @@ fun TimelineDateHeader(
     }
 }
 
+private fun isHistoryItemSubscribed(item: WatchHistoryEntity, subscribedList: List<BookmarkEntity>): Boolean {
+    val derivedSlug = item.episodeSlug.replace(Regex("-episode-\\d+.*"), "").trim()
+    if (derivedSlug.isNotEmpty() && subscribedList.any { it.animeId.equals(derivedSlug, ignoreCase = true) }) {
+        return true
+    }
+    val titleSlug = item.animeTitle?.lowercase()?.replace(Regex("[^a-z0-9]+"), "-")?.trim('-')
+    if (!titleSlug.isNullOrEmpty() && subscribedList.any { 
+        it.animeId.contains(titleSlug, ignoreCase = true) || titleSlug.contains(it.animeId, ignoreCase = true) 
+    }) {
+        return true
+    }
+    return false
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TimelineHistoryCard(
     item: WatchHistoryEntity,
+    isSubscribed: Boolean = false,
     isSelectionMode: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -369,6 +386,26 @@ fun TimelineHistoryCard(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
+
+                // Subscribed Badge at Bottom-Right (Only shown if isSubscribed is true)
+                if (isSubscribed) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 4.dp, bottom = 4.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF2A93E6)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Subscriptions,
+                            contentDescription = "Subscribed",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
             }
 
             // Info Section

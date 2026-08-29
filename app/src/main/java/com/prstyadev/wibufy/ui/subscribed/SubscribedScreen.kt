@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -152,82 +153,101 @@ fun SubscribedScreen(
             }
         }
 
-        // Main Grid containing Ongoing & Completed sections
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 8.dp,
-                bottom = 24.dp
-            ),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("subscribed_grid")
-        ) {
-            // SECTION 1: Ongoing
-            if (uiState.ongoingList.isNotEmpty()) {
-                item(span = { GridItemSpan(3) }) {
-                    Text(
-                        text = "Ongoing (${uiState.ongoingList.size})",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+        // Main Content: Empty State or Grid
+        if (uiState.ongoingList.isEmpty() && uiState.completedList.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Bookmarks,
+                        contentDescription = "Subscribed Kosong",
+                        tint = Color(0xFF494A54),
+                        modifier = Modifier.size(72.dp)
                     )
-                }
-
-                items(uiState.ongoingList, key = { "ongoing_${it.animeId}" }) { bookmark ->
-                    AnimeGridItem(
-                        bookmark = bookmark,
-                        showBadge = false, // Sembunyikan badge "New"
-                        onLongClick = {
-                            itemToDelete = bookmark
-                        },
-                        onClick = { safeNavigateToDetail(bookmark.animeId) }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Belum Ada Anime yang Disubscribe",
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Anime yang kamu subscribe akan muncul di sini agar kamu tidak ketinggalan episode baru.",
+                        color = Color(0xFF8E8E93),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
-
-            // SECTION 2: Completed
-            if (uiState.completedList.isNotEmpty()) {
-                item(span = { GridItemSpan(3) }) {
-                    Text(
-                        text = "Completed (${uiState.completedList.size})",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-                    )
-                }
-
-                items(uiState.completedList, key = { "completed_${it.animeId}" }) { bookmark ->
-                    AnimeGridItem(
-                        bookmark = bookmark,
-                        showBadge = false, // Sembunyikan badge "New"
-                        onLongClick = {
-                            itemToDelete = bookmark
-                        },
-                        onClick = { safeNavigateToDetail(bookmark.animeId) }
-                    )
-                }
-            }
-
-            // Empty state if both lists are empty
-            if (uiState.ongoingList.isEmpty() && uiState.completedList.isEmpty()) {
-                item(span = { GridItemSpan(3) }) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 64.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 8.dp,
+                    bottom = 80.dp
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("subscribed_grid")
+            ) {
+                // SECTION 1: Ongoing
+                if (uiState.ongoingList.isNotEmpty()) {
+                    item(span = { GridItemSpan(3) }) {
                         Text(
-                            text = "Belum ada anime yang disubscribe",
-                            color = Color(0xFF9E9FA4),
-                            fontSize = 15.sp
+                            text = "Ongoing (${uiState.ongoingList.size})",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(uiState.ongoingList, key = { "ongoing_${it.animeId}" }) { bookmark ->
+                        AnimeGridItem(
+                            bookmark = bookmark,
+                            showBadge = false, // Sembunyikan badge "New"
+                            onLongClick = {
+                                itemToDelete = bookmark
+                            },
+                            onClick = { safeNavigateToDetail(bookmark.animeId) }
+                        )
+                    }
+                }
+
+                // SECTION 2: Completed
+                if (uiState.completedList.isNotEmpty()) {
+                    item(span = { GridItemSpan(3) }) {
+                        Text(
+                            text = "Completed (${uiState.completedList.size})",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(uiState.completedList, key = { "completed_${it.animeId}" }) { bookmark ->
+                        AnimeGridItem(
+                            bookmark = bookmark,
+                            showBadge = false, // Sembunyikan badge "New"
+                            onLongClick = {
+                                itemToDelete = bookmark
+                            },
+                            onClick = { safeNavigateToDetail(bookmark.animeId) }
                         )
                     }
                 }
