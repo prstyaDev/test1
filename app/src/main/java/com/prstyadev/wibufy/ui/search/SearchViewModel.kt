@@ -1,10 +1,16 @@
 package com.prstyadev.wibufy.ui.search
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.prstyadev.wibufy.data.AnimeItem
+import com.prstyadev.wibufy.data.DetailRepository
 import com.prstyadev.wibufy.data.RetrofitClient
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,14 +36,17 @@ data class SearchUiState(
     val isSearching: Boolean = false,
     val searchResults: List<AnimeItem> = emptyList(),
     val rawResults: List<AnimeItem> = emptyList(),
+    val synopsisMap: Map<String, String> = emptyMap(),
     val sortOption: SearchSortOption = SearchSortOption.RELEVANT,
     val error: String? = null,
     val hasSearched: Boolean = false
 )
 
 @OptIn(FlowPreview::class)
-class SearchViewModel : ViewModel() {
+class SearchViewModel(application: Application) : AndroidViewModel(application) {
+    private val detailRepository = DetailRepository(application)
     private val _query = MutableStateFlow("")
+    private var synopsisJob: Job? = null
     
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
@@ -50,11 +59,13 @@ class SearchViewModel : ViewModel() {
                 .collectLatest { queryText ->
                     val trimmed = queryText.trim()
                     if (trimmed.isBlank()) {
+                        synopsisJob?.cancel()
                         _uiState.update { 
                             it.copy(
                                 isSearching = false, 
                                 searchResults = emptyList(),
                                 rawResults = emptyList(),
+                                synopsisMap = emptyMap(),
                                 error = null,
                                 hasSearched = false
                             ) 
@@ -115,19 +126,35 @@ class SearchViewModel : ViewModel() {
     }
 
     private suspend fun performSearch(queryText: String) {
+        synopsisJob?.cancel()
         _uiState.update { it.copy(isSearching = true, error = null, hasSearched = true) }
         try {
             val response = RetrofitClient.apiService.searchAnime(queryText)
             val results = response.data?.animeList ?: emptyList()
+            
+            // Check cached synopses from local database
+            val animeIds = results.mapNotNull { it.animeId }
+            val cachedSynopses = detailRepository.getCachedSynopses(animeIds)
+
             _uiState.update { current ->
                 val sorted = applySorting(results, current.sortOption)
                 current.copy(
                     isSearching = false,
                     rawResults = results,
                     searchResults = sorted,
+                    synopsisMap = cachedSynopses,
                     error = null
                 ) 
             }
+
+            // Fetch real synopses on-demand in background for items not in cache
+            val unCachedIds = animeIds.filter { !cachedSynopses.containsKey(it) }.take(10)
+            if (unCachedIds.isNotEmpty()) {
+                synopsisJob = viewModelScope.launch {
+                    fetchSynopsesBatch(unCachedIds)
+                }
+            }
+
         } catch (e: UnknownHostException) {
             _uiState.update { 
                 it.copy(
@@ -148,6 +175,26 @@ class SearchViewModel : ViewModel() {
                     isSearching = false, 
                     error = e.message ?: "Terjadi kesalahan yang tidak diketahui"
                 ) 
+            }
+        }
+    }
+
+    private suspend fun fetchSynopsesBatch(animeIds: List<String>) = coroutineScope {
+        // Fetch in parallel chunks of 3 to avoid overwhelming backend
+        animeIds.chunked(3).forEach { chunk ->
+            val deferreds = chunk.map { animeId ->
+                async {
+                    val synopsis = detailRepository.getOrFetchSynopsis(animeId)
+                    if (!synopsis.isNullOrBlank()) {
+                        animeId to synopsis
+                    } else null
+                }
+            }
+            val results = deferreds.awaitAll().filterNotNull()
+            if (results.isNotEmpty()) {
+                _uiState.update { current ->
+                    current.copy(synopsisMap = current.synopsisMap + results)
+                }
             }
         }
     }

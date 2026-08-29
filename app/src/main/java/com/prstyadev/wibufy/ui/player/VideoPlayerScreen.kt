@@ -10,10 +10,9 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -23,11 +22,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,21 +47,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.common.PlaybackParameters
-import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import com.prstyadev.wibufy.ui.theme.WibufyBackground
 import kotlinx.coroutines.delay
 
 private fun Context.findActivity(): Activity? {
@@ -74,7 +62,6 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
-// Text shadow style for high-contrast video overlay readability
 val overlayTextShadow = Shadow(
     color = Color.Black.copy(alpha = 0.85f),
     offset = Offset(2f, 2f),
@@ -84,22 +71,29 @@ val overlayTextShadow = Shadow(
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoPlayerScreen(
-    episodeSlug: String,
+    episodeSlug: String? = null,
     animeTitle: String? = null,
     episodeName: String? = null,
     posterUrl: String? = null,
-    onNavigateBack: () -> Unit,
-    viewModel: PlayerViewModel = viewModel()
+    onMinimize: () -> Unit = {},
+    onNavigateBack: () -> Unit = onMinimize,
+    onNavigateToEpisode: ((newSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?) -> Unit)? = null,
+    viewModel: GlobalPlayerViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
-    var isFullscreen by remember { mutableStateOf(false) }
+    var isFullscreen by rememberSaveable { mutableStateOf(false) }
     var showQualityBottomSheet by remember { mutableStateOf(false) }
     var showSpeedBottomSheet by remember { mutableStateOf(false) }
-    var playbackSpeed by remember { mutableFloatStateOf(1f) }
-    var isAutonextEnabled by remember { mutableStateOf(true) }
+
+    // If a new episodeSlug was provided that is not currently playing, start it
+    LaunchedEffect(episodeSlug) {
+        if (!episodeSlug.isNullOrBlank() && episodeSlug != uiState.episodeSlug) {
+            viewModel.playEpisode(episodeSlug, animeTitle, episodeName, posterUrl)
+        }
+    }
 
     // Manage Fullscreen Orientation and System Bars
     LaunchedEffect(isFullscreen) {
@@ -112,7 +106,7 @@ fun VideoPlayerScreen(
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
             } else {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
             }
         }
@@ -122,7 +116,7 @@ fun VideoPlayerScreen(
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             activity?.let { act ->
                 val window = act.window
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -132,79 +126,104 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Handle back button when in fullscreen
-    BackHandler(enabled = isFullscreen) {
-        isFullscreen = false
+    // Handle back button: if in fullscreen exit fullscreen; else minimize player
+    BackHandler {
+        if (isFullscreen) {
+            isFullscreen = false
+        } else {
+            onMinimize()
+        }
     }
 
-    LaunchedEffect(episodeSlug) {
-        viewModel.loadStream(episodeSlug)
+    val resolvedAnimeTitle = remember(uiState.streamData?.title, uiState.animeTitle, animeTitle) {
+        uiState.animeTitle ?: animeTitle ?: uiState.streamData?.title ?: "Anime"
     }
 
-    val resolvedAnimeTitle = remember(uiState.streamData?.title, animeTitle) {
-        animeTitle ?: uiState.streamData?.title ?: "Anime"
-    }
-
-    // Compute previous and next episode labels dynamically from title or episodeName
-    val (currentEpNum, prevEpLabel, nextEpLabel) = remember(uiState.streamData?.title, episodeName, episodeSlug) {
-        val titleText = uiState.streamData?.title ?: episodeName ?: episodeSlug
+    val currentEpNum = remember(uiState.streamData?.title, uiState.episodeName, uiState.episodeSlug) {
+        val titleText = uiState.streamData?.title ?: uiState.episodeName ?: uiState.episodeSlug
         val match = Regex("(?i)Episode\\s*(\\d+)").find(titleText)
-            ?: Regex("(?i)ep[-_]?(\\d+)").find(episodeSlug)
-        val epInt = match?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 2
-        val prev = "Episode ${(epInt - 1).coerceAtLeast(1)}"
-        val next = "Episode ${epInt + 1}"
-        Triple(epInt, prev, next)
+            ?: Regex("(?i)ep[-_]?(\\d+)").find(titleText)
+            ?: Regex("(?i)episode[-_]?(\\d+)").find(uiState.episodeSlug)
+        match?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 1
     }
 
-    val displayTitle = remember(uiState.streamData?.title, resolvedAnimeTitle, episodeName) {
-        uiState.streamData?.title ?: if (!episodeName.isNullOrBlank()) "$resolvedAnimeTitle $episodeName" else resolvedAnimeTitle
+    val hasPrevEpisode = (currentEpNum > 1) && (uiState.hasPreviousEpisode || !uiState.previousEpisodeSlug.isNullOrBlank())
+    val prevEpLabel = uiState.previousEpisodeName ?: "Episode ${(currentEpNum - 1).coerceAtLeast(1)}"
+    val prevEpSlug = uiState.previousEpisodeSlug ?: run {
+        val prevEpInt = (currentEpNum - 1).coerceAtLeast(1)
+        val slugRegex = Regex("(?i)(episode[-_]?)(\\d+)")
+        if (slugRegex.containsMatchIn(uiState.episodeSlug)) {
+            slugRegex.replace(uiState.episodeSlug) { m -> "${m.groupValues[1]}$prevEpInt" }
+        } else {
+            val altRegex = Regex("(?i)(ep[-_]?)(\\d+)")
+            if (altRegex.containsMatchIn(uiState.episodeSlug)) {
+                altRegex.replace(uiState.episodeSlug) { m -> "${m.groupValues[1]}$prevEpInt" }
+            } else {
+                "${uiState.episodeSlug}-$prevEpInt"
+            }
+        }
+    }
+
+    val hasNextEpisode = uiState.hasNextEpisode && !uiState.nextEpisodeSlug.isNullOrBlank()
+    val nextEpLabel = uiState.nextEpisodeName ?: "Episode ${currentEpNum + 1}"
+    val nextEpSlug = uiState.nextEpisodeSlug ?: run {
+        val nextEpInt = currentEpNum + 1
+        val slugRegex = Regex("(?i)(episode[-_]?)(\\d+)")
+        if (slugRegex.containsMatchIn(uiState.episodeSlug)) {
+            slugRegex.replace(uiState.episodeSlug) { m -> "${m.groupValues[1]}$nextEpInt" }
+        } else {
+            val altRegex = Regex("(?i)(ep[-_]?)(\\d+)")
+            if (altRegex.containsMatchIn(uiState.episodeSlug)) {
+                altRegex.replace(uiState.episodeSlug) { m -> "${m.groupValues[1]}$nextEpInt" }
+            } else {
+                "${uiState.episodeSlug}-$nextEpInt"
+            }
+        }
+    }
+
+    val displayTitle = remember(uiState.streamData?.title, resolvedAnimeTitle, uiState.episodeName) {
+        uiState.streamData?.title ?: if (!uiState.episodeName.isNullOrBlank()) "$resolvedAnimeTitle ${uiState.episodeName}" else resolvedAnimeTitle
+    }
+
+    val handleNavigateToEpisode: (String, String) -> Unit = { targetSlug, targetLabel ->
+        if (onNavigateToEpisode != null) {
+            onNavigateToEpisode(targetSlug, resolvedAnimeTitle, targetLabel, uiState.posterUrl)
+        } else {
+            viewModel.playEpisode(targetSlug, resolvedAnimeTitle, targetLabel, uiState.posterUrl)
+        }
+    }
+
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (context.findActivity())?.window
+            if (window != null) {
+                window.statusBarColor = android.graphics.Color.parseColor("#161719")
+                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+            }
+        }
     }
 
     Scaffold(
-        containerColor = Color.Black,
-        topBar = {
-            if (!isFullscreen) {
-                TopAppBar(
-                    title = { 
-                        Text(
-                            text = displayTitle,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        ) 
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color(0xFF141518),
-                        titleContentColor = Color.White
-                    )
-                )
-            }
-        }
+        containerColor = Color(0xFF161719),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (isFullscreen) PaddingValues(0.dp) else paddingValues)
-                .background(Color.Black)
+                .padding(paddingValues)
+                .background(Color(0xFF161719))
+                .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier),
+            contentAlignment = Alignment.TopCenter
         ) {
             when {
                 uiState.isLoading -> {
                     Box(
                         modifier = Modifier
+                            .align(Alignment.TopCenter)
                             .fillMaxWidth()
                             .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                            .background(Color(0xFF15161A)),
+                            .background(Color(0xFF161719)),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -212,7 +231,7 @@ fun VideoPlayerScreen(
                             verticalArrangement = Arrangement.Center
                         ) {
                             CircularProgressIndicator(
-                                color = Color(0xFFE50914),
+                                color = Color(0xFFFDD734),
                                 strokeWidth = 3.5.dp,
                                 modifier = Modifier.size(44.dp)
                             )
@@ -229,34 +248,52 @@ fun VideoPlayerScreen(
                 uiState.error != null -> {
                     Box(
                         modifier = Modifier
+                            .align(Alignment.TopCenter)
                             .fillMaxWidth()
                             .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                            .background(Color(0xFF15161A))
+                            .background(Color(0xFF161719))
                             .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = uiState.error ?: "Terjadi kesalahan",
-                            color = Color(0xFFEF5350),
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = uiState.error ?: "Terjadi kesalahan",
+                                color = Color(0xFFEF5350),
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { viewModel.playEpisode(uiState.episodeSlug, uiState.animeTitle, uiState.episodeName, uiState.posterUrl) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2D30))
+                            ) {
+                                Text("Coba Lagi", color = Color.White)
+                            }
+                        }
                     }
                 }
                 else -> {
                     val url = uiState.currentQualityUrl
                     if (url != null) {
                         CustomVideoPlayer(
-                            url = url,
-                            videoTitle = displayTitle,
+                            exoPlayer = viewModel.exoPlayer,
+                            hasPrevEpisode = hasPrevEpisode,
                             prevEpisodeLabel = prevEpLabel,
+                            hasNextEpisode = hasNextEpisode,
                             nextEpisodeLabel = nextEpLabel,
                             currentQuality = uiState.currentQuality ?: "480p",
-                            playbackSpeed = playbackSpeed,
+                            playbackSpeed = uiState.playbackSpeed,
                             isFullscreen = isFullscreen,
-                            isAutonextEnabled = isAutonextEnabled,
-                            initialPositionMs = uiState.initialPositionMs,
-                            onToggleAutonext = { isAutonextEnabled = !isAutonextEnabled },
+                            isAutonextEnabled = uiState.isAutonextEnabled,
+                            isBuffering = uiState.isBuffering,
+                            isPlaying = uiState.isPlaying,
+                            currentPositionMs = uiState.currentPositionMs,
+                            totalDurationMs = uiState.totalDurationMs,
+                            bufferedPositionMs = uiState.bufferedPositionMs,
+                            onToggleAutonext = { viewModel.toggleAutonext() },
                             onOpenQualityPicker = { showQualityBottomSheet = true },
                             onOpenSpeedPicker = { showSpeedBottomSheet = true },
                             onToggleFullscreen = { isFullscreen = !isFullscreen },
@@ -264,29 +301,34 @@ fun VideoPlayerScreen(
                                 if (isFullscreen) {
                                     isFullscreen = false
                                 } else {
-                                    onNavigateBack()
+                                    onMinimize()
                                 }
                             },
-                            onSaveProgress = { pos, dur ->
-                                viewModel.saveProgress(
-                                    episodeSlug = episodeSlug,
-                                    animeTitle = resolvedAnimeTitle,
-                                    episodeName = episodeName ?: "Episode $currentEpNum",
-                                    posterUrl = posterUrl,
-                                    lastPositionMs = pos,
-                                    totalDurationMs = dur
-                                )
+                            onNavigatePrevious = {
+                                if (hasPrevEpisode) {
+                                    handleNavigateToEpisode(prevEpSlug, prevEpLabel)
+                                }
                             },
+                            onNavigateNext = {
+                                if (hasNextEpisode) {
+                                    handleNavigateToEpisode(nextEpSlug, nextEpLabel)
+                                }
+                            },
+                            onTogglePlayPause = { viewModel.togglePlayPause() },
+                            onSeekTo = { pos -> viewModel.seekTo(pos) },
+                            onSeekBy = { delta -> viewModel.seekBy(delta) },
                             modifier = Modifier
+                                .align(Alignment.TopCenter)
                                 .fillMaxWidth()
                                 .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
                         )
                     } else {
                         Box(
                             modifier = Modifier
+                                .align(Alignment.TopCenter)
                                 .fillMaxWidth()
                                 .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                                .background(Color(0xFF15161A)),
+                                .background(Color(0xFF161719)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -324,7 +366,7 @@ fun VideoPlayerScreen(
                             Text(
                                 text = quality.quality ?: "Unknown",
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color(0xFFE50914) else Color.White
+                                color = if (isSelected) Color(0xFFFDD734) else Color.White
                             )
                         },
                         trailingContent = {
@@ -332,7 +374,7 @@ fun VideoPlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Selected Quality",
-                                    tint = Color(0xFFE50914)
+                                    tint = Color(0xFFFDD734)
                                 )
                             }
                         },
@@ -365,7 +407,7 @@ fun VideoPlayerScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
                 speeds.forEach { speed ->
-                    val isSelected = playbackSpeed == speed
+                    val isSelected = uiState.playbackSpeed == speed
                     val label = if (speed == 1.0f) "Normal (1x)" else "${speed}x"
                     ListItem(
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -373,7 +415,7 @@ fun VideoPlayerScreen(
                             Text(
                                 text = label,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color(0xFFE50914) else Color.White
+                                color = if (isSelected) Color(0xFFFDD734) else Color.White
                             )
                         },
                         trailingContent = {
@@ -381,14 +423,14 @@ fun VideoPlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Selected Speed",
-                                    tint = Color(0xFFE50914)
+                                    tint = Color(0xFFFDD734)
                                 )
                             }
                         },
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
-                                playbackSpeed = speed
+                                viewModel.setPlaybackSpeed(speed)
                                 showSpeedBottomSheet = false
                             }
                     )
@@ -402,56 +444,42 @@ fun VideoPlayerScreen(
 @OptIn(UnstableApi::class)
 @Composable
 fun CustomVideoPlayer(
-    url: String,
-    videoTitle: String,
+    exoPlayer: ExoPlayer,
+    hasPrevEpisode: Boolean,
     prevEpisodeLabel: String,
+    hasNextEpisode: Boolean,
     nextEpisodeLabel: String,
     currentQuality: String,
     playbackSpeed: Float,
     isFullscreen: Boolean,
     isAutonextEnabled: Boolean,
-    initialPositionMs: Long = 0L,
+    isBuffering: Boolean,
+    isPlaying: Boolean,
+    currentPositionMs: Long,
+    totalDurationMs: Long,
+    bufferedPositionMs: Long,
     onToggleAutonext: () -> Unit,
     onOpenQualityPicker: () -> Unit,
     onOpenSpeedPicker: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onNavigateBack: () -> Unit,
-    onSaveProgress: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
+    onNavigatePrevious: () -> Unit,
+    onNavigateNext: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onSeekTo: (positionMs: Long) -> Unit,
+    onSeekBy: (deltaMs: Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
 
-    val exoPlayer = remember {
-        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context).apply {
-            setEnableDecoderFallback(true)
-        }
-        val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
-            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
-            .build()
-        ExoPlayer.Builder(context, renderersFactory).build().apply {
-            setAudioAttributes(audioAttributes, true)
-            playWhenReady = true
-        }
-    }
-
-    var isBuffering by remember { mutableStateOf(false) }
-    var isPlaying by remember { mutableStateOf(true) }
-    var currentPositionMs by remember { mutableLongStateOf(0L) }
-    var totalDurationMs by remember { mutableLongStateOf(0L) }
-    var bufferedPositionMs by remember { mutableLongStateOf(0L) }
     var showControls by remember { mutableStateOf(true) }
     var isDraggingScrubber by remember { mutableStateOf(false) }
     var dragProgressMs by remember { mutableLongStateOf(0L) }
-    var hasAppliedInitialSeek by remember { mutableStateOf(false) }
-    var hasRetriedWithFallback by remember(url) { mutableStateOf(false) }
     var showDoubleTapRewind by remember { mutableStateOf(false) }
     var showDoubleTapForward by remember { mutableStateOf(false) }
     var doubleTapRewindCount by remember { mutableIntStateOf(0) }
     var doubleTapForwardCount by remember { mutableIntStateOf(0) }
 
-    // Auto-hide double tap animations after short delay
     LaunchedEffect(doubleTapRewindCount) {
         if (doubleTapRewindCount > 0) {
             showDoubleTapRewind = true
@@ -468,188 +496,12 @@ fun CustomVideoPlayer(
         }
     }
 
-    // Update playback speed dynamically
-    LaunchedEffect(playbackSpeed, exoPlayer) {
-        exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-    }
-
     // Auto-hide controls timer (4 seconds of inactivity while playing and not dragging)
     LaunchedEffect(showControls, isPlaying, isDraggingScrubber) {
         if (showControls && isPlaying && !isDraggingScrubber) {
             delay(4000L)
             showControls = false
         }
-    }
-
-    // Periodic position update loop
-    LaunchedEffect(exoPlayer, isDraggingScrubber) {
-        while (true) {
-            if (!isDraggingScrubber) {
-                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            }
-            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
-            isPlaying = exoPlayer.isPlaying
-            delay(200L)
-        }
-    }
-
-    // ExoPlayer Listener
-    DisposableEffect(exoPlayer, url) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                isBuffering = (playbackState == Player.STATE_BUFFERING)
-                if (playbackState == Player.STATE_READY && !hasAppliedInitialSeek) {
-                    if (initialPositionMs > 0 && (exoPlayer.duration <= 0 || initialPositionMs < exoPlayer.duration - 5000)) {
-                        exoPlayer.seekTo(initialPositionMs)
-                    }
-                    hasAppliedInitialSeek = true
-                }
-            }
-
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (!hasRetriedWithFallback) {
-                    hasRetriedWithFallback = true
-                    val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                    val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                        .setAllowCrossProtocolRedirects(true)
-                        .setUserAgent(userAgent)
-                        .setConnectTimeoutMs(20000)
-                        .setReadTimeoutMs(20000)
-                        .setDefaultRequestProperties(
-                            mapOf(
-                                "Referer" to "https://www.blogger.com/",
-                                "Origin" to "https://www.blogger.com",
-                                "User-Agent" to userAgent
-                            )
-                        )
-                    val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-                    val fallbackMediaItem = MediaItem.Builder()
-                        .setUri(url)
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
-                        .build()
-                    val fallbackSource = DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(fallbackMediaItem)
-                    exoPlayer.setMediaSource(fallbackSource)
-                    exoPlayer.prepare()
-                    exoPlayer.play()
-                }
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose {
-            exoPlayer.removeListener(listener)
-        }
-    }
-
-    // Progress Auto-Save Tracker (Every 5 seconds)
-    LaunchedEffect(exoPlayer) {
-        while (true) {
-            delay(5000L)
-            val currentPos = exoPlayer.currentPosition
-            val duration = exoPlayer.duration
-            if (currentPos > 0 && duration > 0) {
-                onSaveProgress(currentPos, duration)
-            }
-        }
-    }
-
-    // Lifecycle Auto-Pause and Resume
-    DisposableEffect(lifecycleOwner, exoPlayer) {
-        var wasPlayingBeforePause = true
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    wasPlayingBeforePause = exoPlayer.isPlaying || exoPlayer.playWhenReady
-                    val currentPos = exoPlayer.currentPosition
-                    val duration = exoPlayer.duration
-                    if (currentPos > 0 && duration > 0) {
-                        onSaveProgress(currentPos, duration)
-                    }
-                    exoPlayer.pause()
-                }
-                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
-                    if (wasPlayingBeforePause) {
-                        exoPlayer.play()
-                    }
-                }
-                Lifecycle.Event.ON_DESTROY -> {
-                    val currentPos = exoPlayer.currentPosition
-                    val duration = exoPlayer.duration
-                    if (currentPos > 0 && duration > 0) {
-                        onSaveProgress(currentPos, duration)
-                    }
-                    exoPlayer.release()
-                }
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            val currentPos = exoPlayer.currentPosition
-            val duration = exoPlayer.duration
-            if (currentPos > 0 && duration > 0) {
-                onSaveProgress(currentPos, duration)
-            }
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            exoPlayer.release()
-        }
-    }
-
-    // Load MediaSource when URL changes
-    LaunchedEffect(url) {
-        val currentPos = exoPlayer.currentPosition
-        val uri = android.net.Uri.parse(url)
-        val host = uri.host?.lowercase() ?: ""
-        val isBloggerDomain = host.contains("blogger") || host.contains("blogspot") || host.contains("googleusercontent")
-        val referer = if (isBloggerDomain || host.isEmpty()) "https://www.blogger.com/" else "${uri.scheme ?: "https"}://$host/"
-        val origin = if (isBloggerDomain || host.isEmpty()) "https://www.blogger.com" else "${uri.scheme ?: "https"}://$host"
-        val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setUserAgent(userAgent)
-            .setConnectTimeoutMs(20000)
-            .setReadTimeoutMs(20000)
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Referer" to referer,
-                    "Origin" to origin,
-                    "User-Agent" to userAgent
-                )
-            )
-
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val defaultMediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-        
-        val isHls = url.contains("m3u8", ignoreCase = true) || url.contains("hls", ignoreCase = true)
-        val isDash = url.contains("mpd", ignoreCase = true) || url.contains("dash", ignoreCase = true)
-
-        val mediaItem = when {
-            isHls -> MediaItem.Builder()
-                .setUri(url)
-                .setMimeType(MimeTypes.APPLICATION_M3U8)
-                .build()
-            isDash -> MediaItem.Builder()
-                .setUri(url)
-                .setMimeType(MimeTypes.APPLICATION_MPD)
-                .build()
-            else -> MediaItem.fromUri(url)
-        }
-
-        val mediaSource = defaultMediaSourceFactory.createMediaSource(mediaItem)
-
-        exoPlayer.stop()
-        exoPlayer.setMediaSource(mediaSource)
-        if (currentPos > 0) {
-            exoPlayer.seekTo(currentPos)
-        }
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
-        exoPlayer.play()
     }
 
     Box(
@@ -663,29 +515,13 @@ fun CustomVideoPlayer(
                     onDoubleTap = { offset ->
                         val width = size.width
                         if (offset.x < width * 0.45f) {
-                            // Tap kiri 2x -> Mundur 10 detik
-                            val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
-                            exoPlayer.seekTo(target)
-                            currentPositionMs = target
+                            onSeekBy(-10000L)
                             doubleTapRewindCount++
                         } else if (offset.x > width * 0.55f) {
-                            // Tap kanan 2x -> Maju 10 detik
-                            val maxDur = exoPlayer.duration.coerceAtLeast(0L)
-                            val target = if (maxDur > 0) {
-                                (exoPlayer.currentPosition + 10000L).coerceAtMost(maxDur)
-                            } else {
-                                exoPlayer.currentPosition + 10000L
-                            }
-                            exoPlayer.seekTo(target)
-                            currentPositionMs = target
+                            onSeekBy(10000L)
                             doubleTapForwardCount++
                         } else {
-                            // Tap tengah 2x -> Play / Pause
-                            if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                            } else {
-                                exoPlayer.play()
-                            }
+                            onTogglePlayPause()
                         }
                     }
                 )
@@ -706,22 +542,29 @@ fun CustomVideoPlayer(
                     )
                 }
             },
+            update = { playerView ->
+                if (playerView.player != exoPlayer) {
+                    playerView.player = exoPlayer
+                }
+            },
+            onRelease = { playerView ->
+                playerView.player = null
+            },
             modifier = Modifier.fillMaxSize()
         )
 
-        // Double-Tap Rewind 10s Visual Feedback (Layar Kiri)
+        // Double-Tap Rewind 10s Feedback
         AnimatedVisibility(
             visible = showDoubleTapRewind,
-            enter = fadeIn() + scaleIn(initialScale = 0.8f),
-            exit = fadeOut() + scaleOut(targetScale = 1.1f),
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(250)),
             modifier = Modifier.align(Alignment.CenterStart)
         ) {
             Box(
                 modifier = Modifier
-                    .padding(start = 28.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(start = 64.dp)
+                    .background(Color.Transparent)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -732,14 +575,14 @@ fun CustomVideoPlayer(
                         imageVector = Icons.Rounded.Replay10,
                         contentDescription = "Mundur 10 Detik",
                         tint = Color.White,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "-10 Detik",
                         style = TextStyle(
                             color = Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             shadow = overlayTextShadow
                         )
@@ -748,19 +591,18 @@ fun CustomVideoPlayer(
             }
         }
 
-        // Double-Tap Fast-Forward 10s Visual Feedback (Layar Kanan)
+        // Double-Tap Forward 10s Feedback
         AnimatedVisibility(
             visible = showDoubleTapForward,
-            enter = fadeIn() + scaleIn(initialScale = 0.8f),
-            exit = fadeOut() + scaleOut(targetScale = 1.1f),
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(250)),
             modifier = Modifier.align(Alignment.CenterEnd)
         ) {
             Box(
                 modifier = Modifier
-                    .padding(end = 28.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(end = 64.dp)
+                    .background(Color.Transparent)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -771,14 +613,14 @@ fun CustomVideoPlayer(
                         imageVector = Icons.Rounded.Forward10,
                         contentDescription = "Maju 10 Detik",
                         tint = Color.White,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "+10 Detik",
                         style = TextStyle(
                             color = Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             shadow = overlayTextShadow
                         )
@@ -800,67 +642,40 @@ fun CustomVideoPlayer(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
-                    color = Color(0xFFE50914),
+                    color = Color(0xFFFDD734),
                     modifier = Modifier.size(52.dp),
                     strokeWidth = 4.dp
                 )
             }
         }
 
-        // Custom Overlay UI (Exact Mockup Match)
+        // Custom Overlay UI
         AnimatedVisibility(
             visible = showControls,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300))
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.65f),
-                                Color.Black.copy(alpha = 0.25f),
-                                Color.Black.copy(alpha = 0.75f)
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Bottom Gradient Scrim
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(110.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0xFF161719).copy(alpha = 0.50f),
+                                    Color(0xFF161719).copy(alpha = 0.92f)
+                                )
                             )
                         )
-                    )
-            ) {
-                // Top Bar in Overlay (Visible in fullscreen & standard)
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onNavigateBack,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = videoTitle,
-                        style = TextStyle(
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            shadow = overlayTextShadow
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                )
 
-                // Center Controls Row: Skip Previous (with label), Replay 10s, Big White Circle Play/Pause, Forward 10s, Skip Next (with label)
+                // Center Controls Row
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -869,134 +684,124 @@ fun CustomVideoPlayer(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 1. Skip Previous + Episode Name underneath (e.g., Episode 1)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                exoPlayer.seekTo(0L)
-                            }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipPrevious,
-                            contentDescription = "Previous Episode",
-                            tint = Color.White,
-                            modifier = Modifier.size(44.dp)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = prevEpisodeLabel,
-                            style = TextStyle(
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                shadow = overlayTextShadow
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    // 1. Skip Previous
+                    if (hasPrevEpisode) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .widthIn(min = 64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    onNavigatePrevious()
+                                }
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipPrevious,
+                                contentDescription = "Previous Episode",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = prevEpisodeLabel,
+                                style = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = overlayTextShadow
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(64.dp))
                     }
 
                     // 2. Replay 10 Seconds
                     IconButton(
-                        onClick = {
-                            val newPos = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
-                            exoPlayer.seekTo(newPos)
-                        },
-                        modifier = Modifier.size(54.dp)
+                        onClick = { onSeekBy(-10000L) },
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Replay10,
                             contentDescription = "Replay 10s",
                             tint = Color.White,
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
-                    // 3. Main Big White Play / Pause Circle Button (68.dp)
+                    // 3. Main Big White Play / Pause Circle Button
                     Box(
                         modifier = Modifier
-                            .size(68.dp)
-                            .shadow(8.dp, CircleShape)
+                            .size(58.dp)
+                            .shadow(6.dp, CircleShape)
                             .clip(CircleShape)
                             .background(Color.White)
-                            .clickable {
-                                if (exoPlayer.isPlaying) {
-                                    exoPlayer.pause()
-                                } else {
-                                    exoPlayer.play()
-                                }
-                            },
+                            .clickable { onTogglePlayPause() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = Color(0xFF1E1F24),
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
                     // 4. Forward 10 Seconds
                     IconButton(
-                        onClick = {
-                            val maxDur = exoPlayer.duration.coerceAtLeast(0L)
-                            val newPos = if (maxDur > 0) {
-                                (exoPlayer.currentPosition + 10000L).coerceAtMost(maxDur)
-                            } else {
-                                exoPlayer.currentPosition + 10000L
-                            }
-                            exoPlayer.seekTo(newPos)
-                        },
-                        modifier = Modifier.size(54.dp)
+                        onClick = { onSeekBy(10000L) },
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Forward10,
                             contentDescription = "Forward 10s",
                             tint = Color.White,
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
-                    // 5. Skip Next + Next Episode Name underneath (e.g., Episode 3)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                val dur = exoPlayer.duration.coerceAtLeast(0L)
-                                if (dur > 0) {
-                                    exoPlayer.seekTo((dur - 2000L).coerceAtLeast(0L))
+                    // 5. Skip Next
+                    if (hasNextEpisode) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .widthIn(min = 64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    onNavigateNext()
                                 }
-                            }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipNext,
-                            contentDescription = "Next Episode",
-                            tint = Color.White,
-                            modifier = Modifier.size(44.dp)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = nextEpisodeLabel,
-                            style = TextStyle(
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                shadow = overlayTextShadow
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipNext,
+                                contentDescription = "Next Episode",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = nextEpisodeLabel,
+                                style = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = overlayTextShadow
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(64.dp))
                     }
                 }
 
@@ -1013,24 +818,21 @@ fun CustomVideoPlayer(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left: Current time / Total time (e.g. 00:02 / 23:50)
                         val displayPosMs = if (isDraggingScrubber) dragProgressMs else currentPositionMs
                         Text(
                             text = "${formatDurationMs(displayPosMs)} / ${formatDurationMs(totalDurationMs)}",
                             style = TextStyle(
                                 color = Color.White,
-                                fontSize = 15.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 shadow = overlayTextShadow
                             )
                         )
 
-                        // Right: Autonext, 480p, 1x, Fullscreen
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Autonext toggle (▶| Autonext)
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -1042,26 +844,25 @@ fun CustomVideoPlayer(
                                     imageVector = Icons.Rounded.PlayArrow,
                                     contentDescription = null,
                                     tint = if (isAutonextEnabled) Color.White else Color.White.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Text(
                                     text = "Autonext",
                                     style = TextStyle(
                                         color = if (isAutonextEnabled) Color.White else Color.White.copy(alpha = 0.5f),
-                                        fontSize = 15.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         shadow = overlayTextShadow
                                     )
                                 )
                             }
 
-                            // Resolution badge (e.g. 480p) - Prominent bold font matching mockup
                             Text(
                                 text = currentQuality,
                                 style = TextStyle(
                                     color = Color.White,
-                                    fontSize = 18.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     shadow = overlayTextShadow
                                 ),
@@ -1071,13 +872,12 @@ fun CustomVideoPlayer(
                                     .padding(horizontal = 4.dp, vertical = 2.dp)
                             )
 
-                            // Speed indicator (e.g. 1x) - Prominent bold font matching mockup
                             val speedText = if (playbackSpeed == 1f) "1x" else "${playbackSpeed}x"
                             Text(
                                 text = speedText,
                                 style = TextStyle(
                                     color = Color.White,
-                                    fontSize = 18.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     shadow = overlayTextShadow
                                 ),
@@ -1087,7 +887,6 @@ fun CustomVideoPlayer(
                                     .padding(horizontal = 4.dp, vertical = 2.dp)
                             )
 
-                            // Fullscreen icon button (sharp brackets/fullscreen icon)
                             IconButton(
                                 onClick = onToggleFullscreen,
                                 modifier = Modifier.size(32.dp)
@@ -1096,13 +895,13 @@ fun CustomVideoPlayer(
                                     imageVector = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
                                     contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
                                     tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
                     }
 
-                    // Full-width Slim Red Progress Slider / Scrubber Bar with Red Circle Thumb
+                    // Scrubber Bar
                     val progressFraction = if (totalDurationMs > 0) {
                         val pos = if (isDraggingScrubber) dragProgressMs else currentPositionMs
                         (pos.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -1121,7 +920,7 @@ fun CustomVideoPlayer(
                                     if (totalDurationMs > 0) {
                                         val newFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                                         val targetMs = (newFraction * totalDurationMs).toLong()
-                                        exoPlayer.seekTo(targetMs)
+                                        onSeekTo(targetMs)
                                     }
                                 }
                             }
@@ -1136,7 +935,7 @@ fun CustomVideoPlayer(
                                     },
                                     onDragEnd = {
                                         if (totalDurationMs > 0) {
-                                            exoPlayer.seekTo(dragProgressMs)
+                                            onSeekTo(dragProgressMs)
                                             isDraggingScrubber = false
                                         }
                                     },
@@ -1156,7 +955,6 @@ fun CustomVideoPlayer(
                     ) {
                         val availableWidth = maxWidth
 
-                        // Track background (dark gray / semi-transparent)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1164,7 +962,6 @@ fun CustomVideoPlayer(
                                 .background(Color.White.copy(alpha = 0.25f))
                         )
 
-                        // Buffered progress bar
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(bufferedFraction)
@@ -1172,7 +969,6 @@ fun CustomVideoPlayer(
                                 .background(Color.White.copy(alpha = 0.5f))
                         )
 
-                        // Active watched red bar
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(progressFraction)
@@ -1180,7 +976,6 @@ fun CustomVideoPlayer(
                                 .background(Color(0xFFE50914))
                         )
 
-                        // Red thumb circle at current scrubber position (matching mockup)
                         val thumbOffset = availableWidth * progressFraction - 6.dp
                         Box(
                             modifier = Modifier
@@ -1209,4 +1004,3 @@ private fun formatDurationMs(ms: Long): String {
         String.format("%02d:%02d", min, sec)
     }
 }
-

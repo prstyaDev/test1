@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Wibufy"
+rootProject.name = "My Application"
 
 include(":app")

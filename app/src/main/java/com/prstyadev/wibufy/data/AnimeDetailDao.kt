@@ -10,6 +10,9 @@ interface AnimeDetailDao {
     @Query("SELECT * FROM anime_detail_cache WHERE animeId = :animeId LIMIT 1")
     suspend fun getAnimeDetail(animeId: String): AnimeDetailEntity?
 
+    @Query("SELECT * FROM anime_detail_cache WHERE animeId IN (:animeIds)")
+    suspend fun getAnimeDetails(animeIds: List<String>): List<AnimeDetailEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAnimeDetail(entity: AnimeDetailEntity)
 

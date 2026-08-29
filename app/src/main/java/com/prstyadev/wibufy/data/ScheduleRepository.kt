@@ -1,9 +1,18 @@
 package com.prstyadev.wibufy.data
 
 import android.content.Context
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+data class ScheduleFetchResult(
+    val scheduleMap: Map<Int, List<ScheduleAnimeItem>>,
+    val ongoingList: List<AnimeItem>
+)
 
 class ScheduleRepository(context: Context) {
-    private val scheduleCacheDao = AppDatabase.getDatabase(context).scheduleCacheDao()
+    private val database = AppDatabase.getDatabase(context)
+    private val scheduleCacheDao = database.scheduleCacheDao()
+    private val homeCacheDao = database.homeCacheDao()
 
     suspend fun getCachedSchedule(): Map<Int, List<ScheduleAnimeItem>> {
         val cachedEntities = scheduleCacheDao.getAllScheduleCache()
@@ -24,25 +33,101 @@ class ScheduleRepository(context: Context) {
         return resultMap
     }
 
-    suspend fun fetchAndCacheSchedule(): Map<Int, List<ScheduleAnimeItem>> {
-        val response = RetrofitClient.apiService.getSchedule()
-        val scheduleList = response.data?.scheduleList ?: emptyList()
+    suspend fun getCachedOngoingAnime(): List<AnimeItem> {
+        val list = mutableListOf<AnimeItem>()
+        try {
+            val page1Entity = homeCacheDao.getHomeCache("recent_anime_page1")
+            if (page1Entity != null) {
+                val p1 = JsonUtils.animeItemListAdapter.fromJson(page1Entity.jsonContent)
+                if (!p1.isNullOrEmpty()) list.addAll(p1)
+            }
+            val page2Entity = homeCacheDao.getHomeCache("recent_anime_page2")
+            if (page2Entity != null) {
+                val p2 = JsonUtils.animeItemListAdapter.fromJson(page2Entity.jsonContent)
+                if (!p2.isNullOrEmpty()) list.addAll(p2)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    suspend fun fetchAndCacheSchedule(): ScheduleFetchResult = coroutineScope {
+        val scheduleDeferred = async {
+            try {
+                RetrofitClient.apiService.getSchedule()
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        val ongoing1Deferred = async {
+            try {
+                RetrofitClient.apiService.getRecentAnime(page = 1)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        val ongoing2Deferred = async {
+            try {
+                RetrofitClient.apiService.getRecentAnime(page = 2)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        val scheduleResponse = scheduleDeferred.await()
+        val ongoing1Response = ongoing1Deferred.await()
+        val ongoing2Response = ongoing2Deferred.await()
+
+        val scheduleList = scheduleResponse?.data?.scheduleList ?: emptyList()
         val scheduleMap = parseScheduleList(scheduleList)
 
-        // Save to cache
-        val entities = scheduleMap.map { (dayIndex, animeList) ->
-            val json = JsonUtils.scheduleAnimeListAdapter.toJson(animeList)
-            ScheduleCacheEntity(
-                dayName = dayIndex.toString(),
-                jsonContent = json,
-                updatedAt = System.currentTimeMillis()
-            )
-        }
-        if (entities.isNotEmpty()) {
+        // Cache schedule
+        if (scheduleMap.isNotEmpty()) {
+            val entities = scheduleMap.map { (dayIndex, animeList) ->
+                val json = JsonUtils.scheduleAnimeListAdapter.toJson(animeList)
+                ScheduleCacheEntity(
+                    dayName = dayIndex.toString(),
+                    jsonContent = json,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
             scheduleCacheDao.insertAll(entities)
         }
 
-        return scheduleMap
+        // Cache ongoing
+        val ongoingList = mutableListOf<AnimeItem>()
+        val p1Items = ongoing1Response?.data?.animeList
+        if (!p1Items.isNullOrEmpty()) {
+            ongoingList.addAll(p1Items)
+            val json = JsonUtils.animeItemListAdapter.toJson(p1Items)
+            homeCacheDao.insertHomeCache(
+                HomeCacheEntity(
+                    sectionKey = "recent_anime_page1",
+                    jsonContent = json,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+        val p2Items = ongoing2Response?.data?.animeList
+        if (!p2Items.isNullOrEmpty()) {
+            ongoingList.addAll(p2Items)
+            val json = JsonUtils.animeItemListAdapter.toJson(p2Items)
+            homeCacheDao.insertHomeCache(
+                HomeCacheEntity(
+                    sectionKey = "recent_anime_page2",
+                    jsonContent = json,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+        ScheduleFetchResult(
+            scheduleMap = scheduleMap,
+            ongoingList = if (ongoingList.isNotEmpty()) ongoingList else getCachedOngoingAnime()
+        )
     }
 
     private fun parseScheduleList(list: List<ScheduleDayItem>): Map<Int, List<ScheduleAnimeItem>> {

@@ -369,12 +369,7 @@ fun ScheduleCardItem(
     val scoreValue = anime.score?.takeIf { it.isNotBlank() } ?: "N/A"
 
     // Episode text display
-    val episodeText = if (!anime.episodes.isNullOrBlank()) {
-        "Episode ${anime.episodes}"
-    } else {
-        val pseudoEps = kotlin.math.abs((anime.animeId ?: anime.title ?: "").hashCode() % 12) + 1
-        "Episode $pseudoEps"
-    }
+    val episodeText = model.episodeDisplay
 
     Surface(
         shape = RoundedCornerShape(

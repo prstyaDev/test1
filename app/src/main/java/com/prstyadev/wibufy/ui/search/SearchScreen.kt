@@ -280,6 +280,7 @@ fun SearchScreen(
                         items(uiState.searchResults, key = { it.animeId ?: it.title ?: it.hashCode().toString() }) { anime ->
                             SearchResultItem(
                                 anime = anime,
+                                synopsis = uiState.synopsisMap[anime.animeId],
                                 onClick = {
                                     anime.animeId?.let { onNavigateToDetail(it) }
                                 }
@@ -311,6 +312,7 @@ fun SearchScreen(
 @Composable
 fun SearchResultItem(
     anime: AnimeItem,
+    synopsis: String? = null,
     onClick: () -> Unit
 ) {
     val hash = kotlin.math.abs((anime.animeId ?: anime.title ?: "").hashCode())
@@ -444,19 +446,20 @@ fun SearchResultItem(
                 )
             }
 
-            // Synopsis / Description text
+            // Real Synopsis / Description text
             val desc = when {
+                !synopsis.isNullOrBlank() -> synopsis
                 !anime.synopsis.isNullOrBlank() -> anime.synopsis
                 !anime.description.isNullOrBlank() -> anime.description
-                !anime.genres.isNullOrBlank() -> "Genre: ${anime.genres}. Tonton anime ${anime.title ?: ""} subtitle Indonesia terlengkap."
-                else -> "Tonton streaming anime ${anime.title ?: ""} subtitle Indonesia online gratis kualitas HD terlengkap hanya di Wibufy."
+                !anime.genres.isNullOrBlank() -> "Genre: ${anime.genres}" + if (!anime.status.isNullOrBlank()) " • Status: ${anime.status}" else ""
+                else -> "Tonton streaming anime ${anime.title ?: ""} subtitle Indonesia online gratis kualitas HD di Wibufy."
             }
 
             Text(
                 text = desc,
                 color = Color(0xFFAAAAAA),
                 fontSize = 12.5.sp,
-                maxLines = 4,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 17.sp
             )

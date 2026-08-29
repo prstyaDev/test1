@@ -98,4 +98,32 @@ class DetailRepository(context: Context) {
 
         return data
     }
+
+    suspend fun getCachedSynopses(animeIds: List<String>): Map<String, String> {
+        if (animeIds.isEmpty()) return emptyMap()
+        return try {
+            val entities = animeDetailDao.getAnimeDetails(animeIds)
+            entities.mapNotNull { entity ->
+                val syn = entity.synopsis
+                if (!syn.isNullOrBlank()) {
+                    entity.animeId to syn
+                } else null
+            }.toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    suspend fun getOrFetchSynopsis(animeId: String): String? {
+        try {
+            val cached = animeDetailDao.getAnimeDetail(animeId)
+            if (cached != null && !cached.synopsis.isNullOrBlank()) {
+                return cached.synopsis
+            }
+            val fresh = fetchAndCacheAnimeDetail(animeId)
+            return fresh?.anime?.synopsis?.paragraphs?.joinToString("\n\n")
+        } catch (e: Exception) {
+            return null
+        }
+    }
 }

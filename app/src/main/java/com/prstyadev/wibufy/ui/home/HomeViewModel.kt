@@ -46,8 +46,35 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun observeWatchHistory() {
         viewModelScope.launch {
             watchHistoryRepository.allHistory.collect { historyList ->
-                _uiState.update { it.copy(watchHistory = historyList.take(15)) }
+                val distinctLatestPerAnime = historyList
+                    .sortedByDescending { it.timestamp }
+                    .distinctBy { item ->
+                        extractAnimeBaseKey(item)
+                    }
+                    .take(15)
+                _uiState.update { it.copy(watchHistory = distinctLatestPerAnime) }
             }
+        }
+    }
+
+    private fun extractAnimeBaseKey(item: WatchHistoryEntity): String {
+        val title = item.animeTitle?.trim()?.lowercase().orEmpty()
+        val cleanTitle = title
+            .replace(Regex("(?i)\\s*[-–:]?\\s*(?:episode|eps|ep)\\s*\\d+.*$"), "")
+            .replace(Regex("(?i)\\s*(?:subtitle\\s+indonesia|sub\\s+indo|batch).*$"), "")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+
+        val slug = item.episodeSlug.trim().lowercase()
+        val cleanSlug = slug
+            .replace(Regex("(?i)-(?:episode|eps|ep)[-_]?\\d+.*$"), "")
+            .replace(Regex("(?i)-(?:sub-indo|subtitle-indonesia|end|batch).*$"), "")
+            .trim('-')
+
+        return when {
+            cleanTitle.isNotEmpty() && cleanTitle != "anime" -> cleanTitle
+            cleanSlug.isNotEmpty() -> cleanSlug
+            else -> item.episodeSlug
         }
     }
 

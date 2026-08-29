@@ -368,7 +368,7 @@ fun WatchHistoryCard(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = item.animeTitle ?: item.episodeName ?: "Anime",
+            text = formatAnimeTitle(item.animeTitle ?: item.episodeName ?: "Anime"),
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
@@ -378,6 +378,14 @@ fun WatchHistoryCard(
             modifier = Modifier.fillMaxWidth()
         )
     }
+}
+
+private fun formatAnimeTitle(rawTitle: String): String {
+    val cleaned = rawTitle
+        .replace(Regex("(?i)\\s*[-–:]?\\s*(?:episode|eps|ep)\\s*\\d+.*$"), "")
+        .replace(Regex("(?i)\\s*(?:subtitle\\s+indonesia|sub\\s+indo).*$"), "")
+        .trim()
+    return if (cleaned.isNotEmpty()) cleaned else rawTitle
 }
 
 private fun formatEpisodeLabel(episodeName: String?, episodeSlug: String?): String {
