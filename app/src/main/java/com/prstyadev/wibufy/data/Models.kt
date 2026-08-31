@@ -20,7 +20,8 @@ data class RecentData(
 @JsonClass(generateAdapter = true)
 data class HomeData(
     val provider: String? = null,
-    val recent: HomeSection? = null
+    val recent: HomeSection? = null,
+    val complete: HomeSection? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -89,9 +90,19 @@ data class AnimeDetail(
 )
 
 @JsonClass(generateAdapter = true)
+data class GenreListData(
+    val provider: String? = null,
+    val genreList: List<GenreItem>? = null,
+    val animeList: List<AnimeItem>? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class GenreItem(
     val title: String? = null,
-    val genreId: String? = null
+    val genreId: String? = null,
+    val href: String? = null,
+    val samehadakuUrl: String? = null,
+    val isMovie: Boolean = false
 )
 
 @JsonClass(generateAdapter = true)

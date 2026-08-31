@@ -1,6 +1,8 @@
 package com.prstyadev.wibufy.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.prstyadev.wibufy.data.AnimeItem
+import com.prstyadev.wibufy.data.GenreItem
 import com.prstyadev.wibufy.data.WatchHistoryEntity
 import com.prstyadev.wibufy.ui.components.AnimeGridItem
 import com.prstyadev.wibufy.ui.theme.WibufyBackground
@@ -49,7 +52,7 @@ import com.prstyadev.wibufy.ui.theme.WibufySurface
 import com.prstyadev.wibufy.utils.singleClick
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onNavigateToDetail: (String) -> Unit,
@@ -57,6 +60,7 @@ fun HomeScreen(
     onNavigateToBookmark: () -> Unit,
     onNavigateToSchedule: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
+    onNavigateToGenre: (genreId: String, genreTitle: String, isMovie: Boolean) -> Unit = { _, _, _ -> },
     onNavigateToPlayer: (episodeSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?) -> Unit = { _, _, _, _ -> },
     viewModel: HomeViewModel = viewModel()
 ) {
@@ -133,7 +137,7 @@ fun HomeScreen(
                         start = 16.dp, 
                         end = 16.dp, 
                         top = 8.dp, 
-                        bottom = 16.dp
+                        bottom = 40.dp
                     ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -170,24 +174,60 @@ fun HomeScreen(
 
                     // Show More / Show Less Button
                     item(span = { GridItemSpan(3) }) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 0.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = if (isExpanded) "Show Less" else "Show More",
                                 color = Color.White,
-                                fontSize = 16.sp,
+                                fontSize = 14.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.singleClick(debounceTime = 400L) { 
-                                    isExpanded = !isExpanded 
-                                    if (isExpanded) {
-                                        viewModel.loadPage2()
+                                modifier = Modifier
+                                    .singleClick(debounceTime = 400L) { 
+                                        isExpanded = !isExpanded 
+                                        if (isExpanded) {
+                                            viewModel.loadPage2()
+                                        }
                                     }
+                                    .padding(vertical = 4.dp, horizontal = 12.dp)
+                            )
+                        }
+                    }
+
+                    // SECTION: Genres (Placed directly below New Update Anime)
+                    if (uiState.genres.isNotEmpty()) {
+                        item(span = { GridItemSpan(3) }) {
+                            GenresSection(
+                                genres = uiState.genres,
+                                onGenreClick = { genre ->
+                                    onNavigateToGenre(
+                                        genre.genreId.orEmpty(),
+                                        genre.title.orEmpty(),
+                                        genre.isMovie
+                                    )
                                 }
                             )
-                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
+
+                    // SECTION: Completed Anime (Placed below Genres section, exact design as New Update Anime without New badge and without Show More/Less, 33 cards)
+                    if (uiState.completedAnime.isNotEmpty()) {
+                        item(span = { GridItemSpan(3) }) {
+                            CompletedSectionHeader()
+                        }
+
+                        val completedList = uiState.completedAnime.take(33)
+                        itemsIndexed(completedList) { _, anime ->
+                            val isSubscribed = uiState.subscribedAnimeIds.contains(anime.animeId ?: "")
+                            AnimeGridItem(
+                                anime = anime,
+                                showBadge = false,
+                                isSubscribed = isSubscribed,
+                                onClick = { onNavigateToDetail(anime.animeId ?: "") }
+                            )
                         }
                     }
                 }
@@ -483,40 +523,86 @@ fun SectionHeader(onNavigateToSchedule: () -> Unit = {}) {
 }
 
 @Composable
-fun AnimeListItem(anime: AnimeItem, onClick: () -> Unit) {
+fun CompletedSectionHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .singleClick(debounceTime = 600L, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(top = 4.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Card(
+        Text(
+            text = buildAnnotatedString {
+                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
+                    append("Completed")
+                }
+                withStyle(style = SpanStyle(fontWeight = FontWeight.Normal, color = Color.White)) {
+                    append(" Anime")
+                }
+            },
+            fontSize = 24.sp,
+            lineHeight = 28.sp
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun GenresSection(
+    genres: List<GenreItem>,
+    onGenreClick: (GenreItem) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+    ) {
+        Row(
             modifier = Modifier
-                .width(100.dp)
-                .height(140.dp)
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = anime.poster,
-                contentDescription = anime.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
+                        append("Gen")
+                    }
+                    withStyle(style = SpanStyle(fontWeight = FontWeight.Normal, color = Color.White)) {
+                        append("res")
+                    }
+                },
+                fontSize = 24.sp,
+                lineHeight = 28.sp
             )
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = anime.title ?: "",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Episodes: ${anime.episodes ?: "Unknown"}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            genres.forEach { genre ->
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color(0xFF141518))
+                        .border(BorderStroke(1.dp, Color(0xFF1E1F23)), CircleShape)
+                        .singleClick(debounceTime = 500L) { onGenreClick(genre) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .testTag("genre_chip_${genre.genreId ?: genre.title}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = genre.title ?: "",
+                        color = Color(0xFFF1F3F4),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
         }
     }
 }
+

@@ -30,6 +30,7 @@ import androidx.navigation.navArgument
 import com.prstyadev.wibufy.ui.bookmark.BookmarkScreen
 import com.prstyadev.wibufy.ui.components.ComingSoonScreen
 import com.prstyadev.wibufy.ui.detail.DetailScreen
+import com.prstyadev.wibufy.ui.genre.GenreScreen
 import com.prstyadev.wibufy.ui.history.HistoryScreen
 import com.prstyadev.wibufy.ui.home.HomeScreen
 import com.prstyadev.wibufy.ui.player.GlobalPlayerViewModel
@@ -40,6 +41,7 @@ import com.prstyadev.wibufy.ui.search.SearchScreen
 import com.prstyadev.wibufy.ui.subscribed.SubscribedScreen
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 @Composable
@@ -146,6 +148,10 @@ fun AppNavigation(
                                             pagerState.animateScrollToPage(2)
                                         }
                                     },
+                                    onNavigateToGenre = { genreId, genreTitle, isMovie ->
+                                        val encodedTitle = URLEncoder.encode(genreTitle, StandardCharsets.UTF_8.toString())
+                                        navController.navigate("genre/$genreId?genreTitle=$encodedTitle&isMovie=$isMovie")
+                                    },
                                     onNavigateToPlayer = { episodeSlug, animeTitle, episodeName, posterUrl ->
                                         globalPlayerViewModel.playEpisode(episodeSlug, animeTitle, episodeName, posterUrl)
                                     }
@@ -191,6 +197,40 @@ fun AppNavigation(
 
                     composable("search") {
                         SearchScreen(
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToDetail = { animeId ->
+                                navController.navigate("detail/$animeId")
+                            }
+                        )
+                    }
+
+                    composable(
+                        route = "genre/{genreId}?genreTitle={genreTitle}&isMovie={isMovie}",
+                        arguments = listOf(
+                            navArgument("genreId") { type = NavType.StringType },
+                            navArgument("genreTitle") {
+                                type = NavType.StringType
+                                defaultValue = "Genre"
+                            },
+                            navArgument("isMovie") {
+                                type = NavType.BoolType
+                                defaultValue = false
+                            }
+                        )
+                    ) { backStackEntry ->
+                        val genreId = backStackEntry.arguments?.getString("genreId") ?: ""
+                        val rawGenreTitle = backStackEntry.arguments?.getString("genreTitle") ?: "Genre"
+                        val isMovie = backStackEntry.arguments?.getBoolean("isMovie") ?: false
+                        val genreTitle = try {
+                            URLDecoder.decode(rawGenreTitle, StandardCharsets.UTF_8.toString())
+                        } catch (e: Exception) {
+                            rawGenreTitle
+                        }
+
+                        GenreScreen(
+                            genreId = genreId,
+                            genreTitle = genreTitle,
+                            isMovie = isMovie,
                             onNavigateBack = { navController.popBackStack() },
                             onNavigateToDetail = { animeId ->
                                 navController.navigate("detail/$animeId")
