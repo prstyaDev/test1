@@ -30,6 +30,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -43,6 +46,20 @@ fun MiniPlayerBar(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Auto-pause ExoPlayer when app is paused or stopped
+    DisposableEffect(lifecycleOwner, viewModel.exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                viewModel.exoPlayer.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val progress = if (uiState.totalDurationMs > 0) {
         (uiState.currentPositionMs.toFloat() / uiState.totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -64,7 +81,7 @@ fun MiniPlayerBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .height(68.dp)
             .draggable(
                 orientation = Orientation.Horizontal,
                 state = rememberDraggableState { delta ->
@@ -84,19 +101,25 @@ fun MiniPlayerBar(
             ),
         shape = RectangleShape,
         color = Color(0xFF161719),
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(0.dp)
+        ) {
             Row(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Video Player Thumbnail: Flush to top, bottom, and left edge (0.dp padding, RectangleShape)
+                // Left Video Player Thumbnail: Sharp rectangle flush to top, bottom, and left edge (0dp padding)
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .aspectRatio(16f / 9f)
+                        .aspectRatio(16f / 9f, matchHeightConstraintsFirst = true)
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
@@ -111,6 +134,7 @@ fun MiniPlayerBar(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
+                                setPadding(0, 0, 0, 0)
                             }
                         },
                         update = { playerView ->
@@ -121,7 +145,9 @@ fun MiniPlayerBar(
                         onRelease = { playerView ->
                             playerView.player = null
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(0.dp)
                     )
 
                     if (uiState.isLoading || uiState.isBuffering) {
@@ -140,20 +166,20 @@ fun MiniPlayerBar(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
                 // Center Anime Title & Current Episode
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                        .padding(vertical = 4.dp),
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         text = displayAnimeTitle,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = 14.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -201,7 +227,7 @@ fun MiniPlayerBar(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.dp)
+                    .height(2.5.dp)
                     .align(Alignment.BottomCenter),
                 color = Color(0xFFE50914),
                 trackColor = Color(0xFF2C2D30)

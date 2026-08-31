@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Wibufy",
+  "description": "Wibufy - Anime streaming and discovery application",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
