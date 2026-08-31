@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
@@ -81,7 +82,7 @@ fun MiniPlayerBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(68.dp)
+            .height(80.dp)
             .draggable(
                 orientation = Orientation.Horizontal,
                 state = rememberDraggableState { delta ->
@@ -120,6 +121,7 @@ fun MiniPlayerBar(
                     modifier = Modifier
                         .fillMaxHeight()
                         .aspectRatio(16f / 9f, matchHeightConstraintsFirst = true)
+                        .clip(RectangleShape)
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
@@ -129,7 +131,8 @@ fun MiniPlayerBar(
                                 player = viewModel.exoPlayer
                                 useController = false
                                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -141,6 +144,8 @@ fun MiniPlayerBar(
                             if (playerView.player != viewModel.exoPlayer) {
                                 playerView.player = viewModel.exoPlayer
                             }
+                            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         },
                         onRelease = { playerView ->
                             playerView.player = null
@@ -166,7 +171,7 @@ fun MiniPlayerBar(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
                 // Center Anime Title & Current Episode
                 Column(
@@ -179,15 +184,16 @@ fun MiniPlayerBar(
                         text = displayAnimeTitle,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
-                        fontSize = 14.5.sp,
+                        fontSize = 15.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = displayEpisodeName,
-                        color = Color(0xFFAAAAAA),
-                        fontSize = 12.5.sp,
+                        color = Color(0xFFA0A0A0),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -196,13 +202,13 @@ fun MiniPlayerBar(
                 // Quick Play/Pause Action
                 IconButton(
                     onClick = { viewModel.togglePlayPause() },
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (uiState.isPlaying) "Pause" else "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
@@ -211,13 +217,13 @@ fun MiniPlayerBar(
                     onClick = onClose,
                     modifier = Modifier
                         .padding(end = 4.dp)
-                        .size(44.dp)
+                        .size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = "Tutup Pemutar",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
