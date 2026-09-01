@@ -1,12 +1,17 @@
 package com.prstyadev.wibufy.ui.player
 
 import android.app.Activity
+import android.app.DownloadManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
+import android.os.Environment
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -14,15 +19,20 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -104,6 +114,7 @@ fun VideoPlayerScreen(
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
     var showQualityBottomSheet by remember { mutableStateOf(false) }
     var showSpeedBottomSheet by remember { mutableStateOf(false) }
+    var showDownloadBottomSheet by remember { mutableStateOf(false) }
 
     // If a new episodeSlug was provided that is not currently playing, start it
     LaunchedEffect(episodeSlug) {
@@ -225,53 +236,23 @@ fun VideoPlayerScreen(
         containerColor = Color(0xFF161719),
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .background(Color(0xFF161719))
-                .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            when {
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                            .background(Color(0xFF161719)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(
-                                color = Color(0xFFFDD734),
-                                strokeWidth = 3.5.dp,
-                                modifier = Modifier.size(44.dp)
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "Memuat Stream Video...",
-                                color = Color(0xFFCACACA),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+        if (isFullscreen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    uiState.isLoading -> {
+                        CircularProgressIndicator(
+                            color = Color(0xFFFDD734),
+                            strokeWidth = 3.5.dp,
+                            modifier = Modifier.size(44.dp)
+                        )
                     }
-                }
-                uiState.error != null -> {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                            .background(Color(0xFF161719))
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    uiState.error != null -> {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
@@ -291,63 +272,45 @@ fun VideoPlayerScreen(
                             }
                         }
                     }
-                }
-                else -> {
-                    val url = uiState.currentQualityUrl
-                    if (url != null) {
-                        CustomVideoPlayer(
-                            exoPlayer = viewModel.exoPlayer,
-                            hasPrevEpisode = hasPrevEpisode,
-                            prevEpisodeLabel = prevEpLabel,
-                            hasNextEpisode = hasNextEpisode,
-                            nextEpisodeLabel = nextEpLabel,
-                            currentQuality = uiState.currentQuality ?: "480p",
-                            playbackSpeed = uiState.playbackSpeed,
-                            isFullscreen = isFullscreen,
-                            isAutonextEnabled = uiState.isAutonextEnabled,
-                            isBuffering = uiState.isBuffering,
-                            isPlaying = uiState.isPlaying,
-                            currentPositionMs = uiState.currentPositionMs,
-                            totalDurationMs = uiState.totalDurationMs,
-                            bufferedPositionMs = uiState.bufferedPositionMs,
-                            onToggleAutonext = { viewModel.toggleAutonext() },
-                            onOpenQualityPicker = { showQualityBottomSheet = true },
-                            onOpenSpeedPicker = { showSpeedBottomSheet = true },
-                            onToggleFullscreen = { isFullscreen = !isFullscreen },
-                            onNavigateBack = {
-                                if (isFullscreen) {
-                                    isFullscreen = false
-                                } else {
-                                    onMinimize()
-                                }
-                            },
-                            onNavigatePrevious = {
-                                if (hasPrevEpisode) {
-                                    handleNavigateToEpisode(prevEpSlug, prevEpLabel)
-                                }
-                            },
-                            onNavigateNext = {
-                                if (hasNextEpisode) {
-                                    handleNavigateToEpisode(nextEpSlug, nextEpLabel)
-                                }
-                            },
-                            onTogglePlayPause = { viewModel.togglePlayPause() },
-                            onSeekTo = { pos -> viewModel.seekTo(pos) },
-                            onSeekBy = { delta -> viewModel.seekBy(delta) },
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-                                .background(Color(0xFF161719)),
-                            contentAlignment = Alignment.Center
-                        ) {
+                    else -> {
+                        val url = uiState.currentQualityUrl
+                        if (url != null) {
+                            CustomVideoPlayer(
+                                exoPlayer = viewModel.exoPlayer,
+                                hasPrevEpisode = hasPrevEpisode,
+                                prevEpisodeLabel = prevEpLabel,
+                                hasNextEpisode = hasNextEpisode,
+                                nextEpisodeLabel = nextEpLabel,
+                                currentQuality = uiState.currentQuality ?: "480p",
+                                playbackSpeed = uiState.playbackSpeed,
+                                isFullscreen = true,
+                                isAutonextEnabled = uiState.isAutonextEnabled,
+                                isBuffering = uiState.isBuffering,
+                                isPlaying = uiState.isPlaying,
+                                currentPositionMs = uiState.currentPositionMs,
+                                totalDurationMs = uiState.totalDurationMs,
+                                bufferedPositionMs = uiState.bufferedPositionMs,
+                                onToggleAutonext = { viewModel.toggleAutonext() },
+                                onOpenQualityPicker = { showQualityBottomSheet = true },
+                                onOpenSpeedPicker = { showSpeedBottomSheet = true },
+                                onToggleFullscreen = { isFullscreen = false },
+                                onNavigateBack = { isFullscreen = false },
+                                onNavigatePrevious = {
+                                    if (hasPrevEpisode) {
+                                        handleNavigateToEpisode(prevEpSlug, prevEpLabel)
+                                    }
+                                },
+                                onNavigateNext = {
+                                    if (hasNextEpisode) {
+                                        handleNavigateToEpisode(nextEpSlug, nextEpLabel)
+                                    }
+                                },
+                                onTogglePlayPause = { viewModel.togglePlayPause() },
+                                onSeekTo = { pos -> viewModel.seekTo(pos) },
+                                onSeekBy = { delta -> viewModel.seekBy(delta) },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
                             Text(
                                 text = "URL video tidak ditemukan.",
                                 color = Color(0xFFCACACA),
@@ -356,6 +319,216 @@ fun VideoPlayerScreen(
                         }
                     }
                 }
+            }
+        } else {
+            // Portrait Mode: Player on top + Action Bar immediately underneath + Anime Info & Episodes
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .background(Color(0xFF161719))
+                    .statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // 1. Player Container (16:9)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when {
+                        uiState.isLoading -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFFFDD734),
+                                    strokeWidth = 3.5.dp,
+                                    modifier = Modifier.size(44.dp)
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = "Memuat Stream Video...",
+                                    color = Color(0xFFCACACA),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                        uiState.error != null -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Text(
+                                    text = uiState.error ?: "Terjadi kesalahan",
+                                    color = Color(0xFFEF5350),
+                                    fontSize = 14.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(
+                                    onClick = { viewModel.playEpisode(uiState.episodeSlug, uiState.animeTitle, uiState.episodeName, uiState.posterUrl) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2D30))
+                                ) {
+                                    Text("Coba Lagi", color = Color.White)
+                                }
+                            }
+                        }
+                        else -> {
+                            val url = uiState.currentQualityUrl
+                            if (url != null) {
+                                CustomVideoPlayer(
+                                    exoPlayer = viewModel.exoPlayer,
+                                    hasPrevEpisode = hasPrevEpisode,
+                                    prevEpisodeLabel = prevEpLabel,
+                                    hasNextEpisode = hasNextEpisode,
+                                    nextEpisodeLabel = nextEpLabel,
+                                    currentQuality = uiState.currentQuality ?: "480p",
+                                    playbackSpeed = uiState.playbackSpeed,
+                                    isFullscreen = false,
+                                    isAutonextEnabled = uiState.isAutonextEnabled,
+                                    isBuffering = uiState.isBuffering,
+                                    isPlaying = uiState.isPlaying,
+                                    currentPositionMs = uiState.currentPositionMs,
+                                    totalDurationMs = uiState.totalDurationMs,
+                                    bufferedPositionMs = uiState.bufferedPositionMs,
+                                    onToggleAutonext = { viewModel.toggleAutonext() },
+                                    onOpenQualityPicker = { showQualityBottomSheet = true },
+                                    onOpenSpeedPicker = { showSpeedBottomSheet = true },
+                                    onToggleFullscreen = { isFullscreen = true },
+                                    onNavigateBack = { onMinimize() },
+                                    onNavigatePrevious = {
+                                        if (hasPrevEpisode) {
+                                            handleNavigateToEpisode(prevEpSlug, prevEpLabel)
+                                        }
+                                    },
+                                    onNavigateNext = {
+                                        if (hasNextEpisode) {
+                                            handleNavigateToEpisode(nextEpSlug, nextEpLabel)
+                                        }
+                                    },
+                                    onTogglePlayPause = { viewModel.togglePlayPause() },
+                                    onSeekTo = { pos -> viewModel.seekTo(pos) },
+                                    onSeekBy = { delta -> viewModel.seekBy(delta) },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Text(
+                                    text = "URL video tidak ditemukan.",
+                                    color = Color(0xFFCACACA),
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 2. Action Bar (Quick Action Buttons) persis di bawah Player Container sesuai mockup
+                PlayerQuickActionBar(
+                    episodeSlug = uiState.episodeSlug,
+                    currentQuality = uiState.currentQuality ?: "480p",
+                    onQualityClick = { showQualityBottomSheet = true },
+                    onDownloadClick = { showDownloadBottomSheet = true },
+                    onShareClick = {
+                        handleShare(context, resolvedAnimeTitle, "Episode $currentEpNum")
+                    }
+                )
+
+                // 3. Anime & Episode Title Header
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = resolvedAnimeTitle,
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFFDD734).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "Episode $currentEpNum",
+                                color = Color(0xFFFDD734),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (uiState.isPlaying) "Sedang Memutar" else "Dijeda",
+                            color = Color(0xFF9E9E9E),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                // 4. Quick Episode Selector (if available)
+                val episodeList = uiState.episodeList
+                if (!episodeList.isNullOrEmpty()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Daftar Episode (${episodeList.size})",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        episodeList.forEach { ep ->
+                            val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
+                                ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
+                                ?: 1
+                            val isCurrent = epNum == currentEpNum
+                            val epSlug = ep.episodeId ?: ""
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isCurrent) Color(0xFFFDD734) else Color(0xFF24262C),
+                                border = if (!isCurrent) androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)) else null,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        if (!isCurrent && epSlug.isNotBlank()) {
+                                            handleNavigateToEpisode(epSlug, "Episode $epNum")
+                                        }
+                                    }
+                            ) {
+                                Text(
+                                    text = "Ep $epNum",
+                                    color = if (isCurrent) Color(0xFF161719) else Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
@@ -456,6 +629,352 @@ fun VideoPlayerScreen(
             }
         }
     }
+
+    // Download BottomSheet Picker
+    if (showDownloadBottomSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showDownloadBottomSheet = false },
+            containerColor = Color(0xFF1E1F23)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(
+                    text = "Download Episode",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Pilih resolusi video yang ingin diunduh",
+                    fontSize = 13.sp,
+                    color = Color(0xFF9E9E9E)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                val qualities = uiState.streamData?.qualities
+                if (!qualities.isNullOrEmpty()) {
+                    qualities.forEach { quality ->
+                        ListItem(
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            headlineContent = {
+                                Text(
+                                    text = "${quality.quality ?: "Video"} Resolution",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    imageVector = Icons.Outlined.FileDownload,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFDD734)
+                                )
+                            },
+                            trailingContent = {
+                                Icon(
+                                    imageVector = Icons.Rounded.ChevronRight,
+                                    contentDescription = null,
+                                    tint = Color.White.copy(alpha = 0.5f)
+                                )
+                            },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    handleDownload(
+                                        context = context,
+                                        url = quality.url ?: uiState.currentQualityUrl,
+                                        animeTitle = resolvedAnimeTitle,
+                                        qualityName = quality.quality ?: "video"
+                                    )
+                                    showDownloadBottomSheet = false
+                                }
+                        )
+                    }
+                } else {
+                    ListItem(
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        headlineContent = {
+                            Text(
+                                text = "Download ${uiState.currentQuality ?: "Default"}",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Outlined.FileDownload,
+                                contentDescription = null,
+                                tint = Color(0xFFFDD734)
+                            )
+                        },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                handleDownload(
+                                    context = context,
+                                    url = uiState.currentQualityUrl,
+                                    animeTitle = resolvedAnimeTitle,
+                                    qualityName = uiState.currentQuality ?: "video"
+                                )
+                                showDownloadBottomSheet = false
+                            }
+                    )
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun PlayerQuickActionBar(
+    episodeSlug: String,
+    currentQuality: String,
+    onQualityClick: () -> Unit,
+    onDownloadClick: () -> Unit,
+    onShareClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Generate deterministic like/dislike counts based on episode slug
+    val baseLikes = remember(episodeSlug) {
+        val hash = (episodeSlug.hashCode().toLong() and 0x7FFFFFFF) % 4500 + 3500
+        hash
+    }
+    val baseDislikes = remember(episodeSlug) {
+        val hash = (episodeSlug.hashCode().toLong() and 0x7FFFFFFF) % 35 + 12
+        hash.toInt()
+    }
+
+    var isLiked by remember(episodeSlug) { mutableStateOf(false) }
+    var isDisliked by remember(episodeSlug) { mutableStateOf(false) }
+
+    val formattedLikes = remember(baseLikes, isLiked) {
+        val count = baseLikes + if (isLiked) 1 else 0
+        if (count >= 1000) {
+            String.format(java.util.Locale.US, "%.1fK", count / 1000.0)
+        } else {
+            count.toString()
+        }
+    }
+
+    val formattedDislikes = remember(baseDislikes, isDisliked) {
+        (baseDislikes + if (isDisliked) 1 else 0).toString()
+    }
+
+    val pillBg = Color(0xFF222327)
+    val contentColor = Color(0xFFA0A2A1)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 6.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 1. Combined Like & Dislike Pill [ 👍 6.8K | 👎 24 ]
+        Surface(
+            shape = CircleShape,
+            color = pillBg,
+            modifier = Modifier
+                .padding(start = 16.dp)
+                .height(35.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Like portion
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp))
+                        .clickable {
+                            isLiked = !isLiked
+                            if (isLiked) isDisliked = false
+                        }
+                        .padding(start = 12.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                        contentDescription = "Like",
+                        tint = if (isLiked) Color(0xFFFDD734) else contentColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = formattedLikes,
+                        color = if (isLiked) Color(0xFFFDD734) else contentColor,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Vertical Divider
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(15.dp)
+                        .background(contentColor.copy(alpha = 0.25f))
+                )
+
+                // Dislike portion
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp))
+                        .clickable {
+                            isDisliked = !isDisliked
+                            if (isDisliked) isLiked = false
+                        }
+                        .padding(start = 9.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                        contentDescription = "Dislike",
+                        tint = if (isDisliked) Color(0xFFEF5350) else contentColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = formattedDislikes,
+                        color = if (isDisliked) Color(0xFFEF5350) else contentColor,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        // 2. Quality Pill [ ▶ 480p Quality ]
+        Surface(
+            shape = CircleShape,
+            color = pillBg,
+            modifier = Modifier
+                .height(35.dp)
+                .clip(CircleShape)
+                .clickable { onQualityClick() }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayCircle,
+                    contentDescription = "Quality",
+                    tint = contentColor,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = "$currentQuality Quality",
+                    color = contentColor,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        // 3. Download Pill [ ⇩ Download ]
+        Surface(
+            shape = CircleShape,
+            color = pillBg,
+            modifier = Modifier
+                .height(35.dp)
+                .clip(CircleShape)
+                .clickable { onDownloadClick() }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FileDownload,
+                    contentDescription = "Download",
+                    tint = contentColor,
+                    modifier = Modifier.size(15.5.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = "Download",
+                    color = contentColor,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        // 4. Share Pill [ ↗ Share ]
+        Surface(
+            shape = CircleShape,
+            color = pillBg,
+            modifier = Modifier
+                .padding(end = 16.dp)
+                .height(35.dp)
+                .clip(CircleShape)
+                .clickable { onShareClick() }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Share,
+                    contentDescription = "Share",
+                    tint = contentColor,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = "Share",
+                    color = contentColor,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+private fun handleDownload(
+    context: Context,
+    url: String?,
+    animeTitle: String,
+    qualityName: String
+) {
+    if (url.isNullOrBlank()) {
+        Toast.makeText(context, "URL unduhan tidak tersedia.", Toast.LENGTH_SHORT).show()
+        return
+    }
+    try {
+        val uri = Uri.parse(url)
+        val request = DownloadManager.Request(uri).apply {
+            val safeTitle = "${animeTitle.replace(Regex("[^a-zA-Z0-9.-]"), "_")}_$qualityName.mp4"
+            setTitle("$animeTitle ($qualityName)")
+            setDescription("Mengunduh video anime...")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeTitle)
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.enqueue(request)
+        Toast.makeText(context, "Memulai unduhan: $animeTitle ($qualityName)", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            context.startActivity(intent)
+        } catch (ex: Exception) {
+            Toast.makeText(context, "Gagal mengunduh: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private fun handleShare(context: Context, title: String, episodeName: String) {
+    val shareIntent = Intent().apply {
+        action = Intent.ACTION_SEND
+        putExtra(Intent.EXTRA_TEXT, "Nonton $title $episodeName di Wibufy!")
+        type = "text/plain"
+    }
+    context.startActivity(Intent.createChooser(shareIntent, "Bagikan anime"))
 }
 
 @OptIn(UnstableApi::class)
