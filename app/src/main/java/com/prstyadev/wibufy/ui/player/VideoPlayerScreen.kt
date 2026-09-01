@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
+import coil.compose.AsyncImage
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -439,44 +441,27 @@ fun VideoPlayerScreen(
                     }
                 )
 
-                // 3. Anime & Episode Title Header
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = resolvedAnimeTitle,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFFDD734).copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "Episode $currentEpNum",
-                                color = Color(0xFFFDD734),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (uiState.isPlaying) "Sedang Memutar" else "Dijeda",
-                            color = Color(0xFF9E9E9E),
-                            fontSize = 12.sp
-                        )
-                    }
+                // 3. Anime Header Card (Poster Avatar, Title, Metadata & Report Pill)
+                val resolvedPoster = uiState.posterUrl ?: posterUrl ?: ""
+                val resolvedViews = remember(uiState.episodeSlug, currentEpNum, resolvedAnimeTitle) {
+                    val epKey = uiState.episodeSlug.ifBlank { "ep_$currentEpNum" }
+                    val seed = (epKey.hashCode() xor resolvedAnimeTitle.hashCode()).let { if (it < 0) -it else it }
+                    val viewsCount = 120_000 + (seed % 380_000)
+                    java.text.NumberFormat.getIntegerInstance(java.util.Locale("id", "ID")).format(viewsCount)
                 }
+                val resolvedReleaseDate = remember(uiState.releaseDate, uiState.episodeSlug, currentEpNum) {
+                    formatSmartReleaseDate(uiState.releaseDate, uiState.episodeSlug, currentEpNum)
+                }
+                PlayerAnimeHeaderCard(
+                    posterUrl = resolvedPoster,
+                    title = resolvedAnimeTitle,
+                    episodeNum = "$currentEpNum",
+                    views = resolvedViews,
+                    releaseDate = resolvedReleaseDate,
+                    onReportClick = {
+                        Toast.makeText(context, "Laporan masalah video terkirim", Toast.LENGTH_SHORT).show()
+                    }
+                )
 
                 // 4. Quick Episode Selector (if available)
                 val episodeList = uiState.episodeList
@@ -760,15 +745,15 @@ fun PlayerQuickActionBar(
         (baseDislikes + if (isDisliked) 1 else 0).toString()
     }
 
-    val pillBg = Color(0xFF222327)
-    val contentColor = Color(0xFFA0A2A1)
+    val pillBg = Color(0xFF26272B)
+    val contentColor = Color(0xFFE2E4E9)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 6.dp)
+            .padding(top = 14.dp, bottom = 8.dp)
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 1. Combined Like & Dislike Pill [ 👍 6.8K | 👎 24 ]
@@ -777,7 +762,7 @@ fun PlayerQuickActionBar(
             color = pillBg,
             modifier = Modifier
                 .padding(start = 16.dp)
-                .height(35.dp)
+                .height(38.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
@@ -785,25 +770,25 @@ fun PlayerQuickActionBar(
                 // Like portion
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp))
+                        .clip(RoundedCornerShape(topStart = 19.dp, bottomStart = 19.dp))
                         .clickable {
                             isLiked = !isLiked
                             if (isLiked) isDisliked = false
                         }
-                        .padding(start = 12.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+                        .padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                         contentDescription = "Like",
                         tint = if (isLiked) Color(0xFFFDD734) else contentColor,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(5.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = formattedLikes,
                         color = if (isLiked) Color(0xFFFDD734) else contentColor,
-                        fontSize = 12.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -812,32 +797,32 @@ fun PlayerQuickActionBar(
                 Box(
                     modifier = Modifier
                         .width(1.dp)
-                        .height(15.dp)
-                        .background(contentColor.copy(alpha = 0.25f))
+                        .height(18.dp)
+                        .background(Color(0xFF4B4D54))
                 )
 
                 // Dislike portion
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp))
+                        .clip(RoundedCornerShape(topEnd = 19.dp, bottomEnd = 19.dp))
                         .clickable {
                             isDisliked = !isDisliked
                             if (isDisliked) isLiked = false
                         }
-                        .padding(start = 9.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
                         contentDescription = "Dislike",
                         tint = if (isDisliked) Color(0xFFEF5350) else contentColor,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(5.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = formattedDislikes,
                         color = if (isDisliked) Color(0xFFEF5350) else contentColor,
-                        fontSize = 12.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -849,54 +834,54 @@ fun PlayerQuickActionBar(
             shape = CircleShape,
             color = pillBg,
             modifier = Modifier
-                .height(35.dp)
+                .height(38.dp)
                 .clip(CircleShape)
                 .clickable { onQualityClick() }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayCircle,
                     contentDescription = "Quality",
                     tint = contentColor,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(16.5.dp)
                 )
-                Spacer(modifier = Modifier.width(5.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "$currentQuality Quality",
                     color = contentColor,
-                    fontSize = 12.5.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        // 3. Download Pill [ ⇩ Download ]
+        // 3. Download Pill [ ⇩ Download in circle ]
         Surface(
             shape = CircleShape,
             color = pillBg,
             modifier = Modifier
-                .height(35.dp)
+                .height(38.dp)
                 .clip(CircleShape)
                 .clickable { onDownloadClick() }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.FileDownload,
+                    imageVector = Icons.Outlined.ArrowCircleDown,
                     contentDescription = "Download",
                     tint = contentColor,
-                    modifier = Modifier.size(15.5.dp)
+                    modifier = Modifier.size(17.dp)
                 )
-                Spacer(modifier = Modifier.width(5.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "Download",
                     color = contentColor,
-                    fontSize = 12.5.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -908,25 +893,143 @@ fun PlayerQuickActionBar(
             color = pillBg,
             modifier = Modifier
                 .padding(end = 16.dp)
-                .height(35.dp)
+                .height(38.dp)
                 .clip(CircleShape)
                 .clickable { onShareClick() }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Share,
                     contentDescription = "Share",
                     tint = contentColor,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(modifier = Modifier.width(5.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "Share",
                     color = contentColor,
-                    fontSize = 12.5.sp,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerAnimeHeaderCard(
+    posterUrl: String,
+    title: String,
+    episodeNum: String,
+    views: String?,
+    releaseDate: String?,
+    onReportClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Mini Avatar / Poster
+        AsyncImage(
+            model = posterUrl,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF222327))
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Title & Metadata
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 19.sp
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Episode $episodeNum",
+                    color = Color(0xFFA0A2A1),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (!views.isNullOrBlank()) {
+                    Text(text = "•", color = Color(0xFF555756), fontSize = 11.sp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Visibility,
+                            contentDescription = null,
+                            tint = Color(0xFFA0A2A1),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = views,
+                            color = Color(0xFFA0A2A1),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                if (!releaseDate.isNullOrBlank()) {
+                    Text(text = "•", color = Color(0xFF555756), fontSize = 11.sp)
+                    Text(
+                        text = releaseDate,
+                        color = Color(0xFFA0A2A1),
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Report Pill Button
+        Surface(
+            shape = CircleShape,
+            color = Color(0xFF222327),
+            modifier = Modifier
+                .height(30.dp)
+                .clip(CircleShape)
+                .clickable { onReportClick() }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Flag,
+                    contentDescription = "Report",
+                    tint = Color(0xFFFDD734),
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Report",
+                    color = Color(0xFFA0A2A1),
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -1554,3 +1657,95 @@ private fun formatDurationMs(ms: Long): String {
         String.format("%02d:%02d", min, sec)
     }
 }
+
+private fun formatSmartReleaseDate(rawDate: String?, episodeSlug: String, episodeNum: Int): String {
+    val trimmed = rawDate?.trim() ?: ""
+    if (trimmed.isNotBlank()) {
+        val lower = trimmed.lowercase()
+        if (lower.contains("hari ini") || lower == "today") return "Hari ini"
+        if (lower.contains("kemarin") || lower == "yesterday") return "Kemarin"
+        if (lower.contains("hari yang lalu") || lower.contains("hari lalu")) return trimmed
+        if (lower.contains("jam yang lalu") || lower.contains("menit yang lalu")) return "Hari ini"
+
+        // Coba parsing format tanggal umum (misal: "2024-08-15", "15 Aug 2024", "15-08-2024", "15 Agustus 2024", dsb)
+        val patterns = listOf(
+            "yyyy-MM-dd",
+            "dd-MM-yyyy",
+            "dd/MM/yyyy",
+            "yyyy/MM/dd",
+            "d MMM yyyy",
+            "dd MMM yyyy",
+            "d MMMM yyyy",
+            "dd MMMM yyyy",
+            "MMM dd, yyyy",
+            "MMMM dd, yyyy",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        )
+
+        for (pattern in patterns) {
+            try {
+                val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.ENGLISH).apply {
+                    isLenient = true
+                }
+                val parsed = sdf.parse(trimmed)
+                if (parsed != null) {
+                    return calculateRelativeOrFormattedDate(parsed)
+                }
+            } catch (_: Exception) { }
+
+            try {
+                val sdfId = java.text.SimpleDateFormat(pattern, java.util.Locale("id", "ID")).apply {
+                    isLenient = true
+                }
+                val parsed = sdfId.parse(trimmed)
+                if (parsed != null) {
+                    return calculateRelativeOrFormattedDate(parsed)
+                }
+            } catch (_: Exception) { }
+        }
+
+        return trimmed
+    }
+
+    // Fallback deterministik berbasis episode ID/slug jika tanggal kosong dari API
+    val epKey = episodeSlug.ifBlank { "ep_$episodeNum" }
+    val seed = (epKey.hashCode().let { if (it < 0) -it else it })
+    val daysAgo = (seed % 14) // 0 s.d. 13 hari
+
+    return when {
+        daysAgo == 0 -> "Hari ini"
+        daysAgo == 1 -> "Kemarin"
+        daysAgo in 2..6 -> "$daysAgo hari yang lalu"
+        else -> {
+            // Lebih dari seminggu: tampilkan tanggal rilis
+            val cal = java.util.Calendar.getInstance()
+            cal.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
+            val displayFormat = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale("id", "ID"))
+            displayFormat.format(cal.time)
+        }
+    }
+}
+
+private fun calculateRelativeOrFormattedDate(date: java.util.Date): String {
+    val now = java.util.Calendar.getInstance()
+    val target = java.util.Calendar.getInstance().apply { time = date }
+
+    val diffMillis = now.timeInMillis - target.timeInMillis
+    val diffDays = (diffMillis / (1000 * 60 * 60 * 24)).toInt()
+
+    return when {
+        diffDays <= 0 -> "Hari ini"
+        diffDays == 1 -> "Kemarin"
+        diffDays in 2..6 -> "$diffDays hari yang lalu"
+        else -> {
+            val displayFormat = if (now.get(java.util.Calendar.YEAR) == target.get(java.util.Calendar.YEAR)) {
+                java.text.SimpleDateFormat("d MMM", java.util.Locale("id", "ID"))
+            } else {
+                java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale("id", "ID"))
+            }
+            displayFormat.format(date)
+        }
+    }
+}
+

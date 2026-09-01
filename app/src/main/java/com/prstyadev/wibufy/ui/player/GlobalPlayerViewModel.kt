@@ -56,6 +56,7 @@ data class GlobalPlayerUiState(
     val playbackSpeed: Float = 1.0f,
     val isAutonextEnabled: Boolean = true,
     val error: String? = null,
+    val releaseDate: String? = null,
     val episodeList: List<EpisodeItem>? = null,
     val previousEpisodeSlug: String? = null,
     val previousEpisodeName: String? = null,
@@ -371,13 +372,26 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
             val initialPos = savedHistory?.lastPositionMs ?: 0L
             val (resolvedEpisodes, prevPair, nextPair) = resolveEpisodes(episodeSlug)
 
+            val currentEpItem = resolvedEpisodes?.find { ep ->
+                val id = ep.episodeId?.trim()
+                id != null && (id.equals(episodeSlug.trim(), ignoreCase = true) || id.contains(episodeSlug.trim(), ignoreCase = true) || episodeSlug.trim().contains(id, ignoreCase = true))
+            }
+
+            val baseSlug = episodeSlug
+                .replace(Regex("(?i)-episode-\\d+.*"), "")
+                .replace(Regex("(?i)-ep-\\d+.*"), "")
+                .trim()
+            val cachedDetail = if (baseSlug.isNotBlank()) animeDetailDao.getAnimeDetail(baseSlug) else null
+
             val cachedDetailTitle = if (animeTitle.isNullOrBlank()) {
-                val baseSlug = episodeSlug
-                    .replace(Regex("(?i)-episode-\\d+.*"), "")
-                    .replace(Regex("(?i)-ep-\\d+.*"), "")
-                    .trim()
-                if (baseSlug.isNotBlank()) animeDetailDao.getAnimeDetail(baseSlug)?.title else null
+                cachedDetail?.title
             } else null
+
+            val resolvedEpReleaseDate = currentEpItem?.releasedOn
+                ?: currentEpItem?.date
+                ?: currentEpItem?.uploadDate
+                ?: cachedDetail?.aired
+                ?: cachedDetail?.status
 
             val resolvedInitialTitle = resolveCleanAnimeTitle(
                 animeTitle ?: cachedDetailTitle ?: savedHistory?.animeTitle ?: _uiState.value.animeTitle,
@@ -401,6 +415,7 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
                     posterUrl = posterUrl ?: savedHistory?.posterUrl ?: it.posterUrl,
                     initialPositionMs = initialPos,
                     episodeList = resolvedEpisodes,
+                    releaseDate = resolvedEpReleaseDate,
                     previousEpisodeSlug = prevPair?.first,
                     previousEpisodeName = prevPair?.second,
                     nextEpisodeSlug = nextPair?.first,

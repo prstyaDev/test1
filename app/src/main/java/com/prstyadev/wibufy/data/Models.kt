@@ -108,7 +108,10 @@ data class GenreItem(
 @JsonClass(generateAdapter = true)
 data class EpisodeItem(
     val title: Any? = null, // can be string or int
-    val episodeId: String? = null
+    val episodeId: String? = null,
+    val date: String? = null,
+    @Json(name = "releasedOn") val releasedOn: String? = null,
+    @Json(name = "upload_date") val uploadDate: String? = null
 )
 
 @JsonClass(generateAdapter = true)
