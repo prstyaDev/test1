@@ -8,24 +8,39 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Environment
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
+import com.example.R
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,16 +63,24 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.prstyadev.wibufy.ui.theme.WibufyBackground
+import com.prstyadev.wibufy.ui.theme.WibufySurface
+import com.prstyadev.wibufy.ui.theme.WibufyPrimary
+import com.prstyadev.wibufy.ui.theme.WibufyOnBackground
 import androidx.lifecycle.Lifecycle
 import coil.compose.AsyncImage
 import androidx.lifecycle.LifecycleEventObserver
@@ -67,6 +90,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private fun Context.findActivity(): Activity? {
     var currentContext = this
@@ -114,9 +138,20 @@ fun VideoPlayerScreen(
     }
 
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(initialPage = 0) { 2 }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(pagerState.currentPage) {
+        selectedTab = pagerState.currentPage
+    }
+
+    var isSynopsisExpanded by rememberSaveable { mutableStateOf(false) }
+    var commentInputText by remember { mutableStateOf("") }
     var showQualityBottomSheet by remember { mutableStateOf(false) }
     var showSpeedBottomSheet by remember { mutableStateOf(false) }
     var showDownloadBottomSheet by remember { mutableStateOf(false) }
+    var showAllEpisodesBottomSheet by remember { mutableStateOf(false) }
 
     // If a new episodeSlug was provided that is not currently playing, start it
     LaunchedEffect(episodeSlug) {
@@ -234,10 +269,49 @@ fun VideoPlayerScreen(
         }
     }
 
-    Scaffold(
-        containerColor = Color(0xFF161719),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0)
-    ) { paddingValues ->
+    // Swipe down to minimize gesture state (YouTube-like)
+    val dragOffsetY = remember { Animatable(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, dragOffsetY.value.toInt()) }
+            .then(
+                if (!isFullscreen) {
+                    Modifier.draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            val newY = (dragOffsetY.value + delta).coerceAtLeast(0f)
+                            coroutineScope.launch {
+                                dragOffsetY.snapTo(newY)
+                            }
+                        },
+                        onDragStopped = { velocity ->
+                            coroutineScope.launch {
+                                if (dragOffsetY.value > 250f || velocity > 1200f) {
+                                    // Trigger minimize smoothly
+                                    onMinimize()
+                                    dragOffsetY.snapTo(0f)
+                                } else {
+                                    // Snap back to top
+                                    dragOffsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    )
+                } else Modifier
+            )
+    ) {
+        Scaffold(
+            containerColor = WibufyBackground,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+        ) { paddingValues ->
         if (isFullscreen) {
             Box(
                 modifier = Modifier
@@ -328,9 +402,8 @@ fun VideoPlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .background(Color(0xFF161719))
+                    .background(WibufyBackground)
                     .statusBarsPadding()
-                    .verticalScroll(rememberScrollState())
             ) {
                 // 1. Player Container (16:9)
                 Box(
@@ -430,90 +503,97 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                // 2. Action Bar (Quick Action Buttons) persis di bawah Player Container sesuai mockup
-                PlayerQuickActionBar(
-                    episodeSlug = uiState.episodeSlug,
-                    currentQuality = uiState.currentQuality ?: "480p",
-                    onQualityClick = { showQualityBottomSheet = true },
-                    onDownloadClick = { showDownloadBottomSheet = true },
-                    onShareClick = {
-                        handleShare(context, resolvedAnimeTitle, "Episode $currentEpNum")
+                // 2. Tab Navigation (Bstation Style: Info | Komentar with Swipe Gesture)
+                PlayerHeaderTab(
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab ->
+                        selectedTab = tab
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(tab)
+                        }
                     }
                 )
 
-                // 3. Anime Header Card (Poster Avatar, Title, Metadata & Report Pill)
-                val resolvedPoster = uiState.posterUrl ?: posterUrl ?: ""
-                val resolvedViews = remember(uiState.episodeSlug, currentEpNum, resolvedAnimeTitle) {
-                    val epKey = uiState.episodeSlug.ifBlank { "ep_$currentEpNum" }
-                    val seed = (epKey.hashCode() xor resolvedAnimeTitle.hashCode()).let { if (it < 0) -it else it }
-                    val viewsCount = 120_000 + (seed % 380_000)
-                    java.text.NumberFormat.getIntegerInstance(java.util.Locale("id", "ID")).format(viewsCount)
-                }
-                val resolvedReleaseDate = remember(uiState.releaseDate, uiState.episodeSlug, currentEpNum) {
-                    formatSmartReleaseDate(uiState.releaseDate, uiState.episodeSlug, currentEpNum)
-                }
-                PlayerAnimeHeaderCard(
-                    posterUrl = resolvedPoster,
-                    title = resolvedAnimeTitle,
-                    episodeNum = "$currentEpNum",
-                    views = resolvedViews,
-                    releaseDate = resolvedReleaseDate,
-                    onReportClick = {
-                        Toast.makeText(context, "Laporan masalah video terkirim", Toast.LENGTH_SHORT).show()
-                    }
-                )
-
-                // 4. Quick Episode Selector (if available)
-                val episodeList = uiState.episodeList
-                if (!episodeList.isNullOrEmpty()) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Daftar Episode (${episodeList.size})",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        episodeList.forEach { ep ->
-                            val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
-                                ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
-                                ?: 1
-                            val isCurrent = epNum == currentEpNum
-                            val epSlug = ep.episodeId ?: ""
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isCurrent) Color(0xFFFDD734) else Color(0xFF24262C),
-                                border = if (!isCurrent) androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)) else null,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        if (!isCurrent && epSlug.isNotBlank()) {
-                                            handleNavigateToEpisode(epSlug, "Episode $epNum")
-                                        }
-                                    }
-                            ) {
-                                Text(
-                                    text = "Ep $epNum",
-                                    color = if (isCurrent) Color(0xFF161719) else Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                )
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) { page ->
+                    if (page == 0) {
+                        // TAB 1: INFO (Sintesis Bstation & Wibuku) - Scrollable
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // Anime Header Card (Wibuku Style: Avatar + Metadata + Report Pill)
+                            val resolvedPoster = uiState.posterUrl ?: posterUrl ?: ""
+                            val resolvedViews = remember(uiState.episodeSlug, currentEpNum, resolvedAnimeTitle) {
+                                val epKey = uiState.episodeSlug.ifBlank { "ep_$currentEpNum" }
+                                val seed = (epKey.hashCode() xor resolvedAnimeTitle.hashCode()).let { if (it < 0) -it else it }
+                                val viewsCount = 120_000 + (seed % 380_000)
+                                java.text.NumberFormat.getIntegerInstance(java.util.Locale("id", "ID")).format(viewsCount)
                             }
+                            val resolvedReleaseDate = remember(uiState.releaseDate, uiState.episodeSlug, currentEpNum) {
+                                formatSmartReleaseDate(uiState.releaseDate, uiState.episodeSlug, currentEpNum)
+                            }
+                            PlayerAnimeHeaderCard(
+                                posterUrl = resolvedPoster,
+                                title = resolvedAnimeTitle,
+                                episodeNum = "$currentEpNum",
+                                views = resolvedViews,
+                                releaseDate = resolvedReleaseDate,
+                                onReportClick = {
+                                    Toast.makeText(context, "Laporan masalah video terkirim", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+
+                            // Sinopsis Ringkas Expandable (Wibuku Style)
+                            val displaySynopsis = uiState.synopsis?.takeIf { it.isNotBlank() }
+                                ?: "Menceritakan petualangan seru dan kisah epik dalam dunia penuh misteri dan aksi tak terduga. Ikuti perjalanan para karakter dalam menghadapi rintangan menegangkan."
+                            PlayerSynopsisSection(
+                                synopsis = displaySynopsis,
+                                isExpanded = isSynopsisExpanded,
+                                onToggleExpand = { isSynopsisExpanded = !isSynopsisExpanded }
+                            )
+
+                            // Action Bar 1 Baris Simetris (Bstation Style: Suka, Favorit, Kualitas, Unduh, Bagikan)
+                            PlayerActionRow(
+                                episodeSlug = uiState.episodeSlug,
+                                currentQuality = uiState.currentQuality ?: "480p",
+                                onQualityClick = { showQualityBottomSheet = true },
+                                onDownloadClick = { showDownloadBottomSheet = true },
+                                onShareClick = {
+                                    handleShare(context, resolvedAnimeTitle, "Episode $currentEpNum")
+                                }
+                            )
+
+                            // Modern Episode Selector (Bstation & Wibuku Style)
+                            PlayerEpisodeSection(
+                                episodeList = uiState.episodeList,
+                                currentEpNum = currentEpNum,
+                                onEpisodeClick = { epSlug, epNum ->
+                                    handleNavigateToEpisode(epSlug, "Episode $epNum")
+                                },
+                                onOpenAllEpisodes = {
+                                    showAllEpisodesBottomSheet = true
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(32.dp))
+                        }
+                    } else {
+                        // TAB 2: KOMENTAR (Coming Soon seperti Halaman Profile - Ditengah layar)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            PlayerCommentComingSoon()
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
@@ -708,10 +788,247 @@ fun VideoPlayerScreen(
             }
         }
     }
+
+    // All Episodes BottomSheet Picker (Bstation Style - Option 1 Grid Box)
+    if (showAllEpisodesBottomSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAllEpisodesBottomSheet = false },
+            containerColor = Color(0xFF1E1F23),
+            dragHandle = {
+                BottomSheetDefaults.DragHandle(
+                    color = Color.White.copy(alpha = 0.2f)
+                )
+            }
+        ) {
+            PlayerAllEpisodesSheetContent(
+                episodeList = uiState.episodeList,
+                currentEpNum = currentEpNum,
+                onClose = { showAllEpisodesBottomSheet = false },
+                onEpisodeSelect = { epSlug, epNum ->
+                    showAllEpisodesBottomSheet = false
+                    handleNavigateToEpisode(epSlug, "Episode $epNum")
+                }
+            )
+        }
+    }
+    }
 }
 
 @Composable
-fun PlayerQuickActionBar(
+fun PlayerHeaderTab(
+    selectedTab: Int,
+    commentCount: Int = 219,
+    onTabSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Tab 0: Info
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onTabSelected(0) }
+                .padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Info",
+                fontSize = 16.sp,
+                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
+                color = if (selectedTab == 0) Color(0xFFFFFFFF) else Color(0xFF8E8E93)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .width(28.dp)
+                    .height(3.dp)
+                    .clip(CircleShape)
+                    .background(if (selectedTab == 0) Color(0xFFFFFFFF) else Color.Transparent)
+            )
+        }
+
+        // Tab 1: Komentar
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onTabSelected(1) }
+                .padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Komentar",
+                fontSize = 16.sp,
+                fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                color = if (selectedTab == 1) Color(0xFFFFFFFF) else Color(0xFF8E8E93)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(3.dp)
+                    .clip(CircleShape)
+                    .background(if (selectedTab == 1) Color(0xFFFFFFFF) else Color.Transparent)
+            )
+        }
+    }
+}
+
+@Composable
+fun PlayerRankingBadge(
+    category: String = "Populer",
+    rank: String = "Top 7",
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFF1A1D24),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDD734).copy(alpha = 0.35f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "🏆",
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = "$category $rank",
+                    color = Color(0xFFFDD734),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = Color(0xFFFDD734).copy(alpha = 0.8f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun PlayerSynopsisSection(
+    synopsis: String,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        val cleanSynopsis = remember(synopsis) {
+            synopsis.trim()
+        }
+
+        if (isExpanded) {
+            Text(
+                text = cleanSynopsis,
+                color = Color(0xFFCCCCCC),
+                fontSize = 13.sp,
+                lineHeight = 19.5.sp,
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onToggleExpand() }
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = "Sembunyikan ▲",
+                color = Color(0xFF3897F0),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onToggleExpand() }
+                    .padding(vertical = 2.dp)
+            )
+        } else {
+            var cutText by remember(cleanSynopsis) { mutableStateOf<String?>(null) }
+            var canExpand by remember(cleanSynopsis) { mutableStateOf(false) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (canExpand) onToggleExpand()
+                    }
+            ) {
+                if (cutText != null && canExpand) {
+                    Text(
+                        text = buildAnnotatedString {
+                            append(cutText!!)
+                            append("... ")
+                            withStyle(
+                                style = SpanStyle(
+                                    color = Color(0xFF3897F0),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            ) {
+                                append("Selengkapnya ▼")
+                            }
+                        },
+                        color = Color(0xFFCCCCCC),
+                        fontSize = 13.sp,
+                        lineHeight = 19.5.sp,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 2
+                    )
+                } else {
+                    Text(
+                        text = cleanSynopsis,
+                        color = Color(0xFFCCCCCC),
+                        fontSize = 13.sp,
+                        lineHeight = 19.5.sp,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 2,
+                        overflow = TextOverflow.Clip,
+                        onTextLayout = { textLayoutResult ->
+                            if (textLayoutResult.hasVisualOverflow || textLayoutResult.lineCount > 2) {
+                                canExpand = true
+                                val lineEnd = textLayoutResult.getLineEnd(lineIndex = 1, visibleEnd = true)
+                                // String "... Selengkapnya ▼" butuh alokasi ~20 karakter di baris kedua
+                                val safeCutIndex = (lineEnd - 22).coerceAtLeast(0)
+                                cutText = cleanSynopsis.substring(0, safeCutIndex).trimEnd()
+                            } else {
+                                canExpand = false
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PlayerActionRow(
     episodeSlug: String,
     currentQuality: String,
     onQualityClick: () -> Unit,
@@ -719,204 +1036,405 @@ fun PlayerQuickActionBar(
     onShareClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Generate deterministic like/dislike counts based on episode slug
     val baseLikes = remember(episodeSlug) {
-        val hash = (episodeSlug.hashCode().toLong() and 0x7FFFFFFF) % 4500 + 3500
-        hash
+        (episodeSlug.hashCode().toLong() and 0x7FFFFFFF) % 4500 + 3500
     }
-    val baseDislikes = remember(episodeSlug) {
-        val hash = (episodeSlug.hashCode().toLong() and 0x7FFFFFFF) % 35 + 12
-        hash.toInt()
-    }
-
     var isLiked by remember(episodeSlug) { mutableStateOf(false) }
-    var isDisliked by remember(episodeSlug) { mutableStateOf(false) }
+    var isFavorite by remember(episodeSlug) { mutableStateOf(false) }
 
     val formattedLikes = remember(baseLikes, isLiked) {
         val count = baseLikes + if (isLiked) 1 else 0
-        if (count >= 1000) {
-            String.format(java.util.Locale.US, "%.1fK", count / 1000.0)
-        } else {
-            count.toString()
-        }
+        if (count >= 1000) String.format(java.util.Locale.US, "%.1fK", count / 1000.0) else count.toString()
     }
-
-    val formattedDislikes = remember(baseDislikes, isDisliked) {
-        (baseDislikes + if (isDisliked) 1 else 0).toString()
-    }
-
-    val pillBg = Color(0xFF26272B)
-    val contentColor = Color(0xFFE2E4E9)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 14.dp, bottom = 8.dp)
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. Combined Like & Dislike Pill [ 👍 6.8K | 👎 24 ]
-        Surface(
-            shape = CircleShape,
-            color = pillBg,
+        // 1. Suka
+        PlayerActionButtonItem(
+            icon = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+            label = formattedLikes,
+            isSelected = isLiked,
+            onClick = { isLiked = !isLiked }
+        )
+
+        // 2. Favorit
+        PlayerActionButtonItem(
+            icon = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+            label = if (isFavorite) "Tersimpan" else "29.8K",
+            isSelected = isFavorite,
+            onClick = { isFavorite = !isFavorite }
+        )
+
+        // 3. Kualitas
+        PlayerActionButtonItem(
+            icon = Icons.Filled.PlayCircle,
+            label = currentQuality,
+            isSelected = false,
+            onClick = onQualityClick
+        )
+
+        // 4. Unduh
+        PlayerActionButtonItem(
+            icon = Icons.Outlined.FileDownload,
+            label = "Unduh",
+            isSelected = false,
+            onClick = onDownloadClick
+        )
+
+        // 5. Bagikan
+        PlayerActionButtonItem(
+            icon = Icons.Outlined.Share,
+            label = "Bagikan",
+            isSelected = false,
+            onClick = onShareClick
+        )
+    }
+}
+
+@Composable
+private fun PlayerActionButtonItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean = false,
+    onClick: () -> Unit
+) {
+    val activeColor = Color(0xFFFDD734)
+    val inactiveColor = Color(0xFFE7E5E6)
+    val color = if (isSelected) activeColor else inactiveColor
+
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = color,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = color,
+            fontSize = 11.5.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+fun PlayerEpisodeSection(
+    episodeList: List<com.prstyadev.wibufy.data.EpisodeItem>?,
+    currentEpNum: Int,
+    onEpisodeClick: (epSlug: String, epNum: Int) -> Unit,
+    onOpenAllEpisodes: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    if (episodeList.isNullOrEmpty()) return
+
+    val totalEp = episodeList.size
+    val sortedList = remember(episodeList) {
+        episodeList.sortedBy { ep ->
+            ep.title.toString().toDoubleOrNull()?.toInt()
+                ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
+                ?: Int.MAX_VALUE
+        }
+    }
+    val latestEp = sortedList.lastOrNull()?.let { ep ->
+        ep.title.toString().toDoubleOrNull()?.toInt()
+            ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
+            ?: totalEp
+    } ?: totalEp
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Spacer(modifier = Modifier.height(10.dp))
+        // Header Bar: Semua episode & Terbaru EP X > (Clickable)
+        Row(
             modifier = Modifier
-                .padding(start = 16.dp)
-                .height(38.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Text(
+                text = "Semua episode",
+                color = Color(0xFFE7E5E6),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onOpenAllEpisodes() }
+            )
             Row(
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { onOpenAllEpisodes() }
+                    .padding(vertical = 4.dp, horizontal = 4.dp)
             ) {
-                // Like portion
-                Row(
+                Text(
+                    text = "Terbaru EP $latestEp",
+                    color = Color(0xFF8E8E93),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = "Buka semua episode",
+                    tint = Color(0xFF8E8E93),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Horizontal numbered boxes [ 1 ] [ 2 ] [ 3 ] ...
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            sortedList.forEach { ep ->
+                val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
+                    ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
+                    ?: 1
+                val isCurrent = epNum == currentEpNum
+                val epSlug = ep.episodeId ?: ""
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isCurrent) Color(0xFFFFFFFF) else Color(0xFF1A1D24),
+                    border = if (!isCurrent) androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)) else null,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(topStart = 19.dp, bottomStart = 19.dp))
+                        .widthIn(min = 52.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable {
-                            isLiked = !isLiked
-                            if (isLiked) isDisliked = false
+                            if (!isCurrent && epSlug.isNotBlank()) {
+                                onEpisodeClick(epSlug, epNum)
+                            }
                         }
-                        .padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                        contentDescription = "Like",
-                        tint = if (isLiked) Color(0xFFFDD734) else contentColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = formattedLikes,
-                        color = if (isLiked) Color(0xFFFDD734) else contentColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Box(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$epNum",
+                            color = if (isCurrent) Color(0xFF111215) else Color(0xFFE7E5E6),
+                            fontSize = 13.5.sp,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold
+                        )
+                    }
                 }
-
-                // Vertical Divider
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(18.dp)
-                        .background(Color(0xFF4B4D54))
-                )
-
-                // Dislike portion
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(topEnd = 19.dp, bottomEnd = 19.dp))
-                        .clickable {
-                            isDisliked = !isDisliked
-                            if (isDisliked) isLiked = false
-                        }
-                        .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                        contentDescription = "Dislike",
-                        tint = if (isDisliked) Color(0xFFEF5350) else contentColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = formattedDislikes,
-                        color = if (isDisliked) Color(0xFFEF5350) else contentColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-        }
-
-        // 2. Quality Pill [ ▶ 480p Quality ]
-        Surface(
-            shape = CircleShape,
-            color = pillBg,
-            modifier = Modifier
-                .height(38.dp)
-                .clip(CircleShape)
-                .clickable { onQualityClick() }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayCircle,
-                    contentDescription = "Quality",
-                    tint = contentColor,
-                    modifier = Modifier.size(16.5.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "$currentQuality Quality",
-                    color = contentColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        // 3. Download Pill [ ⇩ Download in circle ]
-        Surface(
-            shape = CircleShape,
-            color = pillBg,
-            modifier = Modifier
-                .height(38.dp)
-                .clip(CircleShape)
-                .clickable { onDownloadClick() }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowCircleDown,
-                    contentDescription = "Download",
-                    tint = contentColor,
-                    modifier = Modifier.size(17.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Download",
-                    color = contentColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        // 4. Share Pill [ ↗ Share ]
-        Surface(
-            shape = CircleShape,
-            color = pillBg,
-            modifier = Modifier
-                .padding(end = 16.dp)
-                .height(38.dp)
-                .clip(CircleShape)
-                .clickable { onShareClick() }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Share,
-                    contentDescription = "Share",
-                    tint = contentColor,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Share",
-                    color = contentColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
             }
         }
     }
+}
+
+@Composable
+fun PlayerCommentComingSoon(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Construction,
+            contentDescription = "Coming Soon",
+            tint = Color(0xFF8E8E93),
+            modifier = Modifier.size(64.dp)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Komentar Coming Soon",
+            color = Color(0xFFE7E5E6),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Fitur komentar dan diskusi episode sedang dalam pengembangan.",
+            color = Color(0xFF8E8E93),
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 18.sp
+        )
+    }
+}
+
+@Composable
+fun PlayerAllEpisodesSheetContent(
+    episodeList: List<com.prstyadev.wibufy.data.EpisodeItem>?,
+    currentEpNum: Int,
+    onClose: () -> Unit,
+    onEpisodeSelect: (epSlug: String, epNum: Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (episodeList.isNullOrEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Daftar episode tidak tersedia",
+                color = Color(0xFF8E8E93),
+                fontSize = 14.sp
+            )
+        }
+        return
+    }
+
+    val totalEp = episodeList.size
+    val sortedList = remember(episodeList) {
+        episodeList.sortedBy { ep ->
+            ep.title.toString().toDoubleOrNull()?.toInt()
+                ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
+                ?: Int.MAX_VALUE
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.55f)
+            .padding(bottom = 16.dp)
+    ) {
+        // Header Bar: "Semua episode (Total X)" & Tombol Tutup
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Semua episode",
+                    color = Color(0xFFE7E5E6),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "($totalEp Episode)",
+                    color = Color(0xFF8E8E93),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Tutup",
+                    tint = Color(0xFF8E8E93),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Grid Box Episode (5 Kolom)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(5),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
+        ) {
+            items(sortedList) { ep ->
+                val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
+                    ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
+                    ?: 1
+                val isCurrent = epNum == currentEpNum
+                val epSlug = ep.episodeId ?: ""
+
+                Box(
+                    modifier = Modifier
+                        .aspectRatio(1.25f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isCurrent) Color(0xFFFFFFFF) else Color(0xFF282A30))
+                        .border(
+                            width = 1.dp,
+                            color = if (isCurrent) Color(0xFFFFFFFF) else Color.White.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            if (!isCurrent && epSlug.isNotBlank()) {
+                                onEpisodeSelect(epSlug, epNum)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isCurrent) {
+                        // Icon speaker / equalizer subtle or Play indicator
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = "Sedang diputar",
+                                tint = Color(0xFF111215),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "$epNum",
+                                color = Color(0xFF111215),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "$epNum",
+                            color = Color(0xFFE7E5E6),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PlayerCommentSection(
+    inputText: String,
+    onInputTextChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    PlayerCommentComingSoon(modifier = modifier)
 }
 
 @Composable
@@ -943,7 +1461,7 @@ private fun PlayerAnimeHeaderCard(
             modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF222327))
+                .background(Color(0xFF1A1D24))
         )
 
         Spacer(modifier = Modifier.width(12.dp))
@@ -954,7 +1472,7 @@ private fun PlayerAnimeHeaderCard(
         ) {
             Text(
                 text = title,
-                color = Color.White,
+                color = Color(0xFFE7E5E6),
                 fontSize = 14.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
@@ -968,7 +1486,7 @@ private fun PlayerAnimeHeaderCard(
             ) {
                 Text(
                     text = "Episode $episodeNum",
-                    color = Color(0xFFA0A2A1),
+                    color = Color(0xFF8E8E93),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -981,12 +1499,12 @@ private fun PlayerAnimeHeaderCard(
                         Icon(
                             imageVector = Icons.Outlined.Visibility,
                             contentDescription = null,
-                            tint = Color(0xFFA0A2A1),
+                            tint = Color(0xFF8E8E93),
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
                             text = views,
-                            color = Color(0xFFA0A2A1),
+                            color = Color(0xFF8E8E93),
                             fontSize = 12.sp
                         )
                     }
@@ -995,7 +1513,7 @@ private fun PlayerAnimeHeaderCard(
                     Text(text = "•", color = Color(0xFF555756), fontSize = 11.sp)
                     Text(
                         text = releaseDate,
-                        color = Color(0xFFA0A2A1),
+                        color = Color(0xFF8E8E93),
                         fontSize = 11.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1009,7 +1527,8 @@ private fun PlayerAnimeHeaderCard(
         // Report Pill Button
         Surface(
             shape = CircleShape,
-            color = Color(0xFF222327),
+            color = Color(0xFF1A1D24),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDD734).copy(alpha = 0.25f)),
             modifier = Modifier
                 .height(30.dp)
                 .clip(CircleShape)
@@ -1028,7 +1547,7 @@ private fun PlayerAnimeHeaderCard(
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "Report",
-                    color = Color(0xFFA0A2A1),
+                    color = Color(0xFFE7E5E6),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1181,14 +1700,12 @@ fun CustomVideoPlayer(
             },
         contentAlignment = Alignment.Center
     ) {
-        // Android ExoPlayer View
+        // Android ExoPlayer View (Backed by TextureView for seamless animations, gestures, and zero EGL context errors)
         AndroidView(
-            factory = {
-                PlayerView(context).apply {
+            factory = { ctx ->
+                (LayoutInflater.from(ctx).inflate(R.layout.view_video_player, null) as PlayerView).apply {
                     player = exoPlayer
-                    useController = false
                     keepScreenOn = true
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -1201,7 +1718,9 @@ fun CustomVideoPlayer(
                 }
             },
             onRelease = { playerView ->
-                playerView.player = null
+                if (playerView.player == exoPlayer) {
+                    playerView.player = null
+                }
             },
             modifier = Modifier.fillMaxSize()
         )

@@ -63,7 +63,8 @@ data class GlobalPlayerUiState(
     val nextEpisodeSlug: String? = null,
     val nextEpisodeName: String? = null,
     val hasPreviousEpisode: Boolean = false,
-    val hasNextEpisode: Boolean = false
+    val hasNextEpisode: Boolean = false,
+    val synopsis: String? = null
 )
 
 @OptIn(UnstableApi::class)
@@ -422,6 +423,7 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
                     nextEpisodeName = nextPair?.second,
                     hasPreviousEpisode = prevPair != null && !prevPair.first.isNullOrBlank(),
                     hasNextEpisode = nextPair != null && !nextPair.first.isNullOrBlank(),
+                    synopsis = cachedDetail?.synopsis ?: it.synopsis,
                     error = null
                 )
             }

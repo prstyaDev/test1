@@ -1,16 +1,21 @@
 package com.prstyadev.wibufy.ui.player
 
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import com.example.R
 import androidx.annotation.OptIn
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
@@ -37,6 +42,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -68,7 +74,12 @@ fun MiniPlayerBar(
         0f
     }
 
-    var dragOffset by remember { mutableFloatStateOf(0f) }
+    // YouTube-like Gestures:
+    // 1. Vertical Swipe Up (dragUpOffsetY) -> Expands to full screen video player
+    // 2. Horizontal Swipe (dragOffsetX) -> Dismiss/Closes player
+    val dragOffsetX = remember { Animatable(0f) }
+    val dragOffsetY = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Resolve robust anime title & episode name
     val displayAnimeTitle = remember(uiState.animeTitle, uiState.streamData?.title, uiState.episodeSlug) {
@@ -83,18 +94,65 @@ fun MiniPlayerBar(
         modifier = modifier
             .fillMaxWidth()
             .height(80.dp)
-            .draggable(
-                orientation = Orientation.Horizontal,
-                state = rememberDraggableState { delta ->
-                    dragOffset += delta
-                },
-                onDragStopped = {
-                    if (kotlin.math.abs(dragOffset) > 200) {
-                        onClose()
+            .offset { IntOffset(dragOffsetX.value.toInt(), dragOffsetY.value.toInt()) }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        coroutineScope.launch {
+                            // Check vertical swipe up first
+                            if (dragOffsetY.value < -80f) {
+                                onExpand()
+                                dragOffsetY.snapTo(0f)
+                                dragOffsetX.snapTo(0f)
+                            } else if (kotlin.math.abs(dragOffsetX.value) > 180f) {
+                                // Horizontal swipe dismiss
+                                onClose()
+                                dragOffsetX.snapTo(0f)
+                                dragOffsetY.snapTo(0f)
+                            } else {
+                                // Snap back with spring
+                                launch {
+                                    dragOffsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    )
+                                }
+                                launch {
+                                    dragOffsetX.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        coroutineScope.launch {
+                            dragOffsetY.snapTo(0f)
+                            dragOffsetX.snapTo(0f)
+                        }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        coroutineScope.launch {
+                            // If dragging more vertically (upwards)
+                            if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x) || dragOffsetY.value != 0f) {
+                                val newY = (dragOffsetY.value + dragAmount.y).coerceAtMost(0f)
+                                dragOffsetY.snapTo(newY)
+                            } else {
+                                val newX = dragOffsetX.value + dragAmount.x
+                                dragOffsetX.snapTo(newX)
+                            }
+                        }
                     }
-                    dragOffset = 0f
-                }
-            )
+                )
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -127,12 +185,8 @@ fun MiniPlayerBar(
                 ) {
                     AndroidView(
                         factory = { ctx ->
-                            PlayerView(ctx).apply {
+                            (LayoutInflater.from(ctx).inflate(R.layout.view_mini_player, null) as PlayerView).apply {
                                 player = viewModel.exoPlayer
-                                useController = false
-                                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -148,7 +202,9 @@ fun MiniPlayerBar(
                             playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         },
                         onRelease = { playerView ->
-                            playerView.player = null
+                            if (playerView.player == viewModel.exoPlayer) {
+                                playerView.player = null
+                            }
                         },
                         modifier = Modifier
                             .fillMaxSize()
