@@ -11,6 +11,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.draw.clip
@@ -44,44 +45,20 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 
-@OptIn(UnstableApi::class)
 @Composable
-fun MiniPlayerBar(
+fun MiniPlayerKerangka(
     viewModel: GlobalPlayerViewModel,
     onExpand: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    // Auto-pause ExoPlayer when app is paused or stopped
-    DisposableEffect(lifecycleOwner, viewModel.exoPlayer) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                viewModel.exoPlayer.pause()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
     val progress = if (uiState.totalDurationMs > 0) {
         (uiState.currentPositionMs.toFloat() / uiState.totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
     }
 
-    // YouTube-like Gestures:
-    // 1. Vertical Swipe Up (dragUpOffsetY) -> Expands to full screen video player
-    // 2. Horizontal Swipe (dragOffsetX) -> Dismiss/Closes player
-    val dragOffsetX = remember { Animatable(0f) }
-    val dragOffsetY = remember { Animatable(0f) }
-    val coroutineScope = rememberCoroutineScope()
-
-    // Resolve robust anime title & episode name
     val displayAnimeTitle = remember(uiState.animeTitle, uiState.streamData?.title, uiState.episodeSlug) {
         resolveCleanAnimeTitle(uiState.animeTitle, uiState.streamData?.title, uiState.episodeSlug)
     }
@@ -94,70 +71,11 @@ fun MiniPlayerBar(
         modifier = modifier
             .fillMaxWidth()
             .height(80.dp)
-            .offset { IntOffset(dragOffsetX.value.toInt(), dragOffsetY.value.toInt()) }
             .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragEnd = {
-                        coroutineScope.launch {
-                            // Check vertical swipe up first
-                            if (dragOffsetY.value < -80f) {
-                                onExpand()
-                                dragOffsetY.snapTo(0f)
-                                dragOffsetX.snapTo(0f)
-                            } else if (kotlin.math.abs(dragOffsetX.value) > 180f) {
-                                // Horizontal swipe dismiss
-                                onClose()
-                                dragOffsetX.snapTo(0f)
-                                dragOffsetY.snapTo(0f)
-                            } else {
-                                // Snap back with spring
-                                launch {
-                                    dragOffsetY.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        )
-                                    )
-                                }
-                                launch {
-                                    dragOffsetX.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    onDragCancel = {
-                        coroutineScope.launch {
-                            dragOffsetY.snapTo(0f)
-                            dragOffsetX.snapTo(0f)
-                        }
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        coroutineScope.launch {
-                            // If dragging more vertically (upwards)
-                            if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x) || dragOffsetY.value != 0f) {
-                                val newY = (dragOffsetY.value + dragAmount.y).coerceAtMost(0f)
-                                dragOffsetY.snapTo(newY)
-                            } else {
-                                val newX = dragOffsetX.value + dragAmount.x
-                                dragOffsetX.snapTo(newX)
-                            }
-                        }
-                    }
+                detectTapGestures(
+                    onTap = { onExpand() }
                 )
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onExpand
-            ),
+            },
         shape = RectangleShape,
         color = Color(0xFF161719),
         tonalElevation = 0.dp,
@@ -174,58 +92,15 @@ fun MiniPlayerBar(
                     .padding(0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Video Player Thumbnail: Sharp rectangle flush to top, bottom, and left edge (0dp padding)
+                // Left Video Player Slot placeholder: 80.dp height, 16:9 aspect ratio
+                // The shared ExoPlayer surface sits directly on top of this slot without being re-created!
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .aspectRatio(16f / 9f, matchHeightConstraintsFirst = true)
                         .clip(RectangleShape)
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AndroidView(
-                        factory = { ctx ->
-                            (LayoutInflater.from(ctx).inflate(R.layout.view_mini_player, null) as PlayerView).apply {
-                                player = viewModel.exoPlayer
-                                layoutParams = FrameLayout.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                setPadding(0, 0, 0, 0)
-                            }
-                        },
-                        update = { playerView ->
-                            if (playerView.player != viewModel.exoPlayer) {
-                                playerView.player = viewModel.exoPlayer
-                            }
-                            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        },
-                        onRelease = { playerView ->
-                            if (playerView.player == viewModel.exoPlayer) {
-                                playerView.player = null
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(0.dp)
-                    )
-
-                    if (uiState.isLoading || uiState.isBuffering) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.4f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                color = Color(0xFFFDD734),
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
+                        .background(Color.Black)
+                )
 
                 Spacer(modifier = Modifier.width(14.dp))
 
@@ -296,4 +171,20 @@ fun MiniPlayerBar(
             )
         }
     }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun MiniPlayerBar(
+    viewModel: GlobalPlayerViewModel,
+    onExpand: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    MiniPlayerKerangka(
+        viewModel = viewModel,
+        onExpand = onExpand,
+        onClose = onClose,
+        modifier = modifier
+    )
 }

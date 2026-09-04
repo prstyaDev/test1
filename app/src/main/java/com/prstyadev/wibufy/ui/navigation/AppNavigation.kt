@@ -276,25 +276,9 @@ fun AppNavigation(
             }
         }
 
-        // Root MiniPlayerBar Overlay floating at the highest Z-index covering Bottom Navigation Bar uniformly across all pages
+        // Continuous Drag Fractional Sheet Player (Mini Player 0.0f -> Full Player 1.0f in a single container)
         AnimatedVisibility(
-            visible = playerUiState.isActive && playerUiState.isMinimized,
-            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(250)) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(250)) + fadeOut(animationSpec = tween(200)),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-        ) {
-            MiniPlayerBar(
-                viewModel = globalPlayerViewModel,
-                onExpand = { globalPlayerViewModel.expand() },
-                onClose = { globalPlayerViewModel.stopAndClose() }
-            )
-        }
-
-        // Full Screen Video Player Overlay when Active & Expanded
-        AnimatedVisibility(
-            visible = playerUiState.isActive && !playerUiState.isMinimized,
+            visible = playerUiState.isActive,
             enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(300)) + fadeIn(animationSpec = tween(250)),
             exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(300)) + fadeOut(animationSpec = tween(250)),
             modifier = Modifier.fillMaxSize()
@@ -304,7 +288,8 @@ fun AppNavigation(
                 onMinimize = { globalPlayerViewModel.minimize() },
                 onNavigateToEpisode = { nextSlug, nextTitle, nextEp, nextPoster ->
                     globalPlayerViewModel.playEpisode(nextSlug, nextTitle, nextEp, nextPoster)
-                }
+                },
+                modifier = Modifier.fillMaxSize()
             )
         }
     }

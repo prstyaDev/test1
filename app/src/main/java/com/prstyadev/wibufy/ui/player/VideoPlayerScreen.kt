@@ -81,6 +81,10 @@ import com.prstyadev.wibufy.ui.theme.WibufyBackground
 import com.prstyadev.wibufy.ui.theme.WibufySurface
 import com.prstyadev.wibufy.ui.theme.WibufyPrimary
 import com.prstyadev.wibufy.ui.theme.WibufyOnBackground
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.lifecycle.Lifecycle
 import coil.compose.AsyncImage
 import androidx.lifecycle.LifecycleEventObserver
@@ -117,7 +121,8 @@ fun VideoPlayerScreen(
     onMinimize: () -> Unit = {},
     onNavigateBack: () -> Unit = onMinimize,
     onNavigateToEpisode: ((newSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?) -> Unit)? = null,
-    viewModel: GlobalPlayerViewModel = viewModel()
+    viewModel: GlobalPlayerViewModel = viewModel(),
+    modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -269,33 +274,154 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Swipe down to minimize gesture state (YouTube-like)
-    val dragOffsetY = remember { Animatable(0f) }
+    // Fractional Continuous Player Sheet State (0.0f = Mini Player, 1.0f = Full Player)
+    val fraction = remember { Animatable(if (uiState.isMinimized) 0f else 1f) }
+    val dragOffsetX = remember { Animatable(0f) }
+    var isDragging by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .offset { IntOffset(0, dragOffsetY.value.toInt()) }
-            .then(
-                if (!isFullscreen) {
-                    Modifier.draggable(
+    // Synchronize with external ViewModel isMinimized changes
+    LaunchedEffect(uiState.isMinimized) {
+        if (!isDragging) {
+            val target = if (uiState.isMinimized) 0f else 1f
+            if (fraction.targetValue != target) {
+                fraction.animateTo(
+                    targetValue = target,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
+    // Intercept Back button:
+    // If in fullscreen -> exit fullscreen
+    // If in expanded/fractional mode -> smoothly minimize to mini player
+    BackHandler(enabled = fraction.value > 0.01f || isFullscreen) {
+        if (isFullscreen) {
+            isFullscreen = false
+        } else {
+            coroutineScope.launch {
+                fraction.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+                viewModel.minimize()
+                onMinimize()
+            }
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
+    ) {
+        val screenWidth = maxWidth
+        val screenHeight = maxHeight
+        val density = LocalDensity.current
+
+        val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+        val miniBarH = 80.dp
+        val miniVideoW = 80.dp * 16f / 9f
+        val miniVideoH = 80.dp
+        val miniY = screenHeight - navBarBottom - miniBarH
+
+        val fullVideoY = if (isFullscreen) 0.dp else statusBarTop
+        val fullVideoW = screenWidth
+        val fullVideoH = if (isFullscreen) screenHeight else (screenWidth * 9f / 16f)
+
+        val totalDragPx = with(density) { (miniY - fullVideoY).toPx().coerceAtLeast(1f) }
+
+        val curFraction = fraction.value
+        val curVideoX = if (curFraction < 0.05f) with(density) { dragOffsetX.value.toDp() } else 0.dp
+        val curVideoY = lerp(miniY, fullVideoY, curFraction)
+        val curVideoW = lerp(miniVideoW, fullVideoW, curFraction)
+        val curVideoH = lerp(miniVideoH, fullVideoH, curFraction)
+
+        // 1. Full Player Background Scrim
+        if (curFraction > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(if (isFullscreen) Color.Black else WibufyBackground.copy(alpha = curFraction.coerceIn(0f, 1f)))
+                    .pointerInput(Unit) {
+                        detectTapGestures { }
+                    }
+            )
+        }
+
+        // 2. Kerangka Mini Player: strictly anchored at miniY, never lifting up during transition!
+        if ((curFraction < 0.35f || isDragging) && !isFullscreen) {
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            dragOffsetX.value.roundToInt(),
+                            with(density) { miniY.roundToPx() }
+                        )
+                    }
+                    .fillMaxWidth()
+                    .height(miniBarH)
+                    .graphicsLayer {
+                        alpha = (1f - curFraction * 3.5f).coerceIn(0f, 1f)
+                    }
+                    .draggable(
                         orientation = Orientation.Vertical,
+                        enabled = !isFullscreen,
                         state = rememberDraggableState { delta ->
-                            val newY = (dragOffsetY.value + delta).coerceAtLeast(0f)
+                            isDragging = true
                             coroutineScope.launch {
-                                dragOffsetY.snapTo(newY)
+                                val deltaFraction = -delta / totalDragPx
+                                val next = (fraction.value + deltaFraction).coerceIn(0f, 1f)
+                                fraction.snapTo(next)
                             }
                         },
                         onDragStopped = { velocity ->
                             coroutineScope.launch {
-                                if (dragOffsetY.value > 250f || velocity > 1200f) {
-                                    // Trigger minimize smoothly
-                                    onMinimize()
-                                    dragOffsetY.snapTo(0f)
+                                val target = when {
+                                    velocity < -600f -> 1f
+                                    velocity > 600f -> 0f
+                                    fraction.value > 0.45f -> 1f
+                                    else -> 0f
+                                }
+                                fraction.animateTo(
+                                    targetValue = target,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                                isDragging = false
+                                if (target == 1f) {
+                                    viewModel.expand()
                                 } else {
-                                    // Snap back to top
-                                    dragOffsetY.animateTo(
-                                        targetValue = 0f,
+                                    viewModel.minimize()
+                                    onMinimize()
+                                }
+                            }
+                        }
+                    )
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        enabled = curFraction < 0.05f && !isDragging,
+                        state = rememberDraggableState { delta ->
+                            coroutineScope.launch {
+                                dragOffsetX.snapTo(dragOffsetX.value + delta)
+                            }
+                        },
+                        onDragStopped = { velocity ->
+                            coroutineScope.launch {
+                                if (kotlin.math.abs(dragOffsetX.value) > 180f || kotlin.math.abs(velocity) > 1000f) {
+                                    viewModel.stopAndClose()
+                                    dragOffsetX.snapTo(0f)
+                                } else {
+                                    dragOffsetX.animateTo(
+                                        0f,
                                         animationSpec = spring(
                                             dampingRatio = Spring.DampingRatioMediumBouncy,
                                             stiffness = Spring.StiffnessLow
@@ -305,214 +431,51 @@ fun VideoPlayerScreen(
                             }
                         }
                     )
-                } else Modifier
-            )
-    ) {
-        Scaffold(
-            containerColor = WibufyBackground,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0)
-        ) { paddingValues ->
-        if (isFullscreen) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
             ) {
-                when {
-                    uiState.isLoading -> {
-                        CircularProgressIndicator(
-                            color = Color(0xFFFDD734),
-                            strokeWidth = 3.5.dp,
-                            modifier = Modifier.size(44.dp)
-                        )
-                    }
-                    uiState.error != null -> {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = uiState.error ?: "Terjadi kesalahan",
-                                color = Color(0xFFEF5350),
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Button(
-                                onClick = { viewModel.playEpisode(uiState.episodeSlug, uiState.animeTitle, uiState.episodeName, uiState.posterUrl) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2D30))
-                            ) {
-                                Text("Coba Lagi", color = Color.White)
-                            }
-                        }
-                    }
-                    else -> {
-                        val url = uiState.currentQualityUrl
-                        if (url != null) {
-                            CustomVideoPlayer(
-                                exoPlayer = viewModel.exoPlayer,
-                                hasPrevEpisode = hasPrevEpisode,
-                                prevEpisodeLabel = prevEpLabel,
-                                hasNextEpisode = hasNextEpisode,
-                                nextEpisodeLabel = nextEpLabel,
-                                currentQuality = uiState.currentQuality ?: "480p",
-                                playbackSpeed = uiState.playbackSpeed,
-                                isFullscreen = true,
-                                isAutonextEnabled = uiState.isAutonextEnabled,
-                                isBuffering = uiState.isBuffering,
-                                isPlaying = uiState.isPlaying,
-                                currentPositionMs = uiState.currentPositionMs,
-                                totalDurationMs = uiState.totalDurationMs,
-                                bufferedPositionMs = uiState.bufferedPositionMs,
-                                onToggleAutonext = { viewModel.toggleAutonext() },
-                                onOpenQualityPicker = { showQualityBottomSheet = true },
-                                onOpenSpeedPicker = { showSpeedBottomSheet = true },
-                                onToggleFullscreen = { isFullscreen = false },
-                                onNavigateBack = { isFullscreen = false },
-                                onNavigatePrevious = {
-                                    if (hasPrevEpisode) {
-                                        handleNavigateToEpisode(prevEpSlug, prevEpLabel)
-                                    }
-                                },
-                                onNavigateNext = {
-                                    if (hasNextEpisode) {
-                                        handleNavigateToEpisode(nextEpSlug, nextEpLabel)
-                                    }
-                                },
-                                onTogglePlayPause = { viewModel.togglePlayPause() },
-                                onSeekTo = { pos -> viewModel.seekTo(pos) },
-                                onSeekBy = { delta -> viewModel.seekBy(delta) },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Text(
-                                text = "URL video tidak ditemukan.",
-                                color = Color(0xFFCACACA),
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            // Portrait Mode: Player on top + Action Bar immediately underneath + Anime Info & Episodes
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .background(WibufyBackground)
-                    .statusBarsPadding()
-            ) {
-                // 1. Player Container (16:9)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    when {
-                        uiState.isLoading -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = Color(0xFFFDD734),
-                                    strokeWidth = 3.5.dp,
-                                    modifier = Modifier.size(44.dp)
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
-                                Text(
-                                    text = "Memuat Stream Video...",
-                                    color = Color(0xFFCACACA),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                        uiState.error != null -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(16.dp)
-                            ) {
-                                Text(
-                                    text = uiState.error ?: "Terjadi kesalahan",
-                                    color = Color(0xFFEF5350),
-                                    fontSize = 14.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Button(
-                                    onClick = { viewModel.playEpisode(uiState.episodeSlug, uiState.animeTitle, uiState.episodeName, uiState.posterUrl) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2D30))
-                                ) {
-                                    Text("Coba Lagi", color = Color.White)
-                                }
-                            }
-                        }
-                        else -> {
-                            val url = uiState.currentQualityUrl
-                            if (url != null) {
-                                CustomVideoPlayer(
-                                    exoPlayer = viewModel.exoPlayer,
-                                    hasPrevEpisode = hasPrevEpisode,
-                                    prevEpisodeLabel = prevEpLabel,
-                                    hasNextEpisode = hasNextEpisode,
-                                    nextEpisodeLabel = nextEpLabel,
-                                    currentQuality = uiState.currentQuality ?: "480p",
-                                    playbackSpeed = uiState.playbackSpeed,
-                                    isFullscreen = false,
-                                    isAutonextEnabled = uiState.isAutonextEnabled,
-                                    isBuffering = uiState.isBuffering,
-                                    isPlaying = uiState.isPlaying,
-                                    currentPositionMs = uiState.currentPositionMs,
-                                    totalDurationMs = uiState.totalDurationMs,
-                                    bufferedPositionMs = uiState.bufferedPositionMs,
-                                    onToggleAutonext = { viewModel.toggleAutonext() },
-                                    onOpenQualityPicker = { showQualityBottomSheet = true },
-                                    onOpenSpeedPicker = { showSpeedBottomSheet = true },
-                                    onToggleFullscreen = { isFullscreen = true },
-                                    onNavigateBack = { onMinimize() },
-                                    onNavigatePrevious = {
-                                        if (hasPrevEpisode) {
-                                            handleNavigateToEpisode(prevEpSlug, prevEpLabel)
-                                        }
-                                    },
-                                    onNavigateNext = {
-                                        if (hasNextEpisode) {
-                                            handleNavigateToEpisode(nextEpSlug, nextEpLabel)
-                                        }
-                                    },
-                                    onTogglePlayPause = { viewModel.togglePlayPause() },
-                                    onSeekTo = { pos -> viewModel.seekTo(pos) },
-                                    onSeekBy = { delta -> viewModel.seekBy(delta) },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Text(
-                                    text = "URL video tidak ditemukan.",
-                                    color = Color(0xFFCACACA),
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 2. Tab Navigation (Bstation Style: Info | Komentar with Swipe Gesture)
-                PlayerHeaderTab(
-                    selectedTab = selectedTab,
-                    onTabSelected = { tab ->
-                        selectedTab = tab
+                MiniPlayerKerangka(
+                    viewModel = viewModel,
+                    onExpand = {
                         coroutineScope.launch {
-                            pagerState.animateScrollToPage(tab)
+                            fraction.animateTo(1f)
+                            viewModel.expand()
                         }
+                    },
+                    onClose = {
+                        viewModel.stopAndClose()
                     }
                 )
+            }
+        }
+
+        // 3. Full Player Detail Content (Below the Video in Portrait Mode)
+        if (curFraction > 0.15f && !isFullscreen) {
+            val detailTop = curVideoY + curVideoH
+            val detailHeight = (screenHeight - detailTop).coerceAtLeast(0.dp)
+            val detailAlpha = ((curFraction - 0.2f) / 0.8f).coerceIn(0f, 1f)
+
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(0, with(density) { detailTop.roundToPx() })
+                    }
+                    .fillMaxWidth()
+                    .height(detailHeight)
+                    .graphicsLayer { alpha = detailAlpha }
+                    .background(WibufyBackground)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // 2. Tab Navigation (Bstation Style: Info | Komentar with Swipe Gesture)
+                    PlayerHeaderTab(
+                        selectedTab = selectedTab,
+                        onTabSelected = { tab ->
+                            selectedTab = tab
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(tab)
+                            }
+                        }
+                    )
 
                 HorizontalPager(
                     state = pagerState,
@@ -597,6 +560,171 @@ fun VideoPlayerScreen(
             }
         }
     }
+
+        // 4. The SINGLE Shared ExoPlayer Surface & Controls (Zero flicker, never re-created!)
+        Box(
+            modifier = Modifier
+                .offset {
+                    IntOffset(
+                        with(density) { curVideoX.roundToPx() },
+                        with(density) { curVideoY.roundToPx() }
+                    )
+                }
+                .size(curVideoW, curVideoH)
+                .graphicsLayer { clip = true }
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    enabled = !isFullscreen,
+                    state = rememberDraggableState { delta ->
+                        isDragging = true
+                        coroutineScope.launch {
+                            val deltaFraction = -delta / totalDragPx
+                            val next = (fraction.value + deltaFraction).coerceIn(0f, 1f)
+                            fraction.snapTo(next)
+                        }
+                    },
+                    onDragStopped = { velocity ->
+                        coroutineScope.launch {
+                            val target = when {
+                                velocity < -600f -> 1f
+                                velocity > 600f -> 0f
+                                fraction.value > 0.45f -> 1f
+                                else -> 0f
+                            }
+                            fraction.animateTo(
+                                targetValue = target,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
+                            isDragging = false
+                            if (target == 1f) {
+                                viewModel.expand()
+                            } else {
+                                viewModel.minimize()
+                                onMinimize()
+                            }
+                        }
+                    }
+                )
+        ) {
+            val isMini = curFraction < 0.3f
+            val controlsAlpha = ((curFraction - 0.7f) / 0.3f).coerceIn(0f, 1f)
+
+            when {
+                uiState.isLoading && curFraction > 0.5f -> {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color(0xFFFDD734),
+                                strokeWidth = 3.5.dp,
+                                modifier = Modifier.size(44.dp)
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "Memuat Stream Video...",
+                                color = Color(0xFFCACACA),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+                uiState.error != null && curFraction > 0.5f -> {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = uiState.error ?: "Terjadi kesalahan",
+                                color = Color(0xFFEF5350),
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { viewModel.playEpisode(uiState.episodeSlug, uiState.animeTitle, uiState.episodeName, uiState.posterUrl) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2D30))
+                            ) {
+                                Text("Coba Lagi", color = Color.White)
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    val url = uiState.currentQualityUrl
+                    if (url != null) {
+                        CustomVideoPlayer(
+                            exoPlayer = viewModel.exoPlayer,
+                            hasPrevEpisode = hasPrevEpisode,
+                            prevEpisodeLabel = prevEpLabel,
+                            hasNextEpisode = hasNextEpisode,
+                            nextEpisodeLabel = nextEpLabel,
+                            currentQuality = uiState.currentQuality ?: "480p",
+                            playbackSpeed = uiState.playbackSpeed,
+                            isFullscreen = isFullscreen,
+                            isAutonextEnabled = uiState.isAutonextEnabled,
+                            isBuffering = uiState.isBuffering,
+                            isPlaying = uiState.isPlaying,
+                            currentPositionMs = uiState.currentPositionMs,
+                            totalDurationMs = uiState.totalDurationMs,
+                            bufferedPositionMs = uiState.bufferedPositionMs,
+                            onToggleAutonext = { viewModel.toggleAutonext() },
+                            onOpenQualityPicker = { showQualityBottomSheet = true },
+                            onOpenSpeedPicker = { showSpeedBottomSheet = true },
+                            onToggleFullscreen = { isFullscreen = !isFullscreen },
+                            onNavigateBack = {
+                                if (isFullscreen) {
+                                    isFullscreen = false
+                                } else {
+                                    coroutineScope.launch {
+                                        fraction.animateTo(0f)
+                                        viewModel.minimize()
+                                        onMinimize()
+                                    }
+                                }
+                            },
+                            onNavigatePrevious = {
+                                if (hasPrevEpisode) {
+                                    handleNavigateToEpisode(prevEpSlug, prevEpLabel)
+                                }
+                            },
+                            onNavigateNext = {
+                                if (hasNextEpisode) {
+                                    handleNavigateToEpisode(nextEpSlug, nextEpLabel)
+                                }
+                            },
+                            onTogglePlayPause = { viewModel.togglePlayPause() },
+                            onSeekTo = { pos -> viewModel.seekTo(pos) },
+                            onSeekBy = { delta -> viewModel.seekBy(delta) },
+                            isMiniPlayer = isMini,
+                            controlsAlpha = controlsAlpha,
+                            onExpandFromMini = {
+                                coroutineScope.launch {
+                                    fraction.animateTo(1f)
+                                    viewModel.expand()
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (curFraction > 0.5f) {
+                        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "URL video tidak ditemukan.",
+                                color = Color(0xFFCACACA),
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
     // Resolution BottomSheet Picker
     if (showQualityBottomSheet) {
@@ -1626,7 +1754,10 @@ fun CustomVideoPlayer(
     onTogglePlayPause: () -> Unit,
     onSeekTo: (positionMs: Long) -> Unit,
     onSeekBy: (deltaMs: Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isMiniPlayer: Boolean = false,
+    controlsAlpha: Float = 1f,
+    onExpandFromMini: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1679,21 +1810,27 @@ fun CustomVideoPlayer(
     Box(
         modifier = modifier
             .background(Color.Black)
-            .pointerInput(Unit) {
+            .pointerInput(isMiniPlayer, controlsAlpha) {
                 detectTapGestures(
                     onTap = {
-                        showControls = !showControls
+                        if (isMiniPlayer || controlsAlpha < 0.2f) {
+                            onExpandFromMini()
+                        } else {
+                            showControls = !showControls
+                        }
                     },
                     onDoubleTap = { offset ->
-                        val width = size.width
-                        if (offset.x < width * 0.45f) {
-                            onSeekBy(-10000L)
-                            doubleTapRewindCount++
-                        } else if (offset.x > width * 0.55f) {
-                            onSeekBy(10000L)
-                            doubleTapForwardCount++
-                        } else {
-                            onTogglePlayPause()
+                        if (!isMiniPlayer && controlsAlpha >= 0.8f) {
+                            val width = size.width
+                            if (offset.x < width * 0.45f) {
+                                onSeekBy(-10000L)
+                                doubleTapRewindCount++
+                            } else if (offset.x > width * 0.55f) {
+                                onSeekBy(10000L)
+                                doubleTapForwardCount++
+                            } else {
+                                onTogglePlayPause()
+                            }
                         }
                     }
                 )
@@ -1801,9 +1938,9 @@ fun CustomVideoPlayer(
             }
         }
 
-        // Buffering Indicator
+        // Buffering Indicator - Full Mode
         AnimatedVisibility(
-            visible = isBuffering,
+            visible = isBuffering && !isMiniPlayer && controlsAlpha > 0.5f,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
@@ -1821,11 +1958,28 @@ fun CustomVideoPlayer(
             }
         }
 
+        // Buffering Indicator - Mini Mode (compact yellow spinner)
+        if (isBuffering && (isMiniPlayer || controlsAlpha <= 0.5f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    color = Color(0xFFFDD734),
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
         // Custom Overlay UI
         AnimatedVisibility(
-            visible = showControls,
+            visible = showControls && !isMiniPlayer && controlsAlpha > 0.15f,
             enter = fadeIn(animationSpec = tween(300)),
-            exit = fadeOut(animationSpec = tween(300))
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier.graphicsLayer { alpha = controlsAlpha }
         ) {
             Box(
                 modifier = Modifier.fillMaxSize()
