@@ -190,7 +190,7 @@ fun AppNavigation(
                             animeId = animeId,
                             onNavigateBack = { navController.popBackStack() },
                             onNavigateToPlayer = { episodeSlug, animeTitle, episodeName, posterUrl, episodeList ->
-                                globalPlayerViewModel.playEpisode(episodeSlug, animeTitle, episodeName, posterUrl, episodeList)
+                                globalPlayerViewModel.playEpisode(episodeSlug, animeTitle, episodeName, posterUrl, episodeList, animeId = animeId)
                             }
                         )
                     }

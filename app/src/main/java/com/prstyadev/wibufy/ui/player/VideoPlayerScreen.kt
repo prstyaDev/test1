@@ -27,6 +27,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
@@ -35,10 +36,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -521,11 +525,13 @@ fun VideoPlayerScreen(
                                 onToggleExpand = { isSynopsisExpanded = !isSynopsisExpanded }
                             )
 
-                            // Action Bar 1 Baris Simetris (Bstation Style: Suka, Favorit, Kualitas, Unduh, Bagikan)
+                            // Action Bar 1 Baris Simetris (Bstation Style: Suka, Subscribed, Unduh, Bagikan)
                             PlayerActionRow(
                                 episodeSlug = uiState.episodeSlug,
-                                currentQuality = uiState.currentQuality ?: "480p",
-                                onQualityClick = { showQualityBottomSheet = true },
+                                isSubscribed = uiState.isBookmarked,
+                                onSubscribeClick = {
+                                    viewModel.toggleBookmark()
+                                },
                                 onDownloadClick = { showDownloadBottomSheet = true },
                                 onShareClick = {
                                     handleShare(context, resolvedAnimeTitle, "Episode $currentEpNum")
@@ -1158,8 +1164,8 @@ fun PlayerSynopsisSection(
 @Composable
 fun PlayerActionRow(
     episodeSlug: String,
-    currentQuality: String,
-    onQualityClick: () -> Unit,
+    isSubscribed: Boolean,
+    onSubscribeClick: () -> Unit,
     onDownloadClick: () -> Unit,
     onShareClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1168,7 +1174,6 @@ fun PlayerActionRow(
         (episodeSlug.hashCode().toLong() and 0x7FFFFFFF) % 4500 + 3500
     }
     var isLiked by remember(episodeSlug) { mutableStateOf(false) }
-    var isFavorite by remember(episodeSlug) { mutableStateOf(false) }
 
     val formattedLikes = remember(baseLikes, isLiked) {
         val count = baseLikes + if (isLiked) 1 else 0
@@ -1190,23 +1195,15 @@ fun PlayerActionRow(
             onClick = { isLiked = !isLiked }
         )
 
-        // 2. Favorit
+        // 2. Subscribed (Sinkron dengan Room Database / Tab Subscribed di Halaman Utama)
         PlayerActionButtonItem(
-            icon = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-            label = if (isFavorite) "Tersimpan" else "29.8K",
-            isSelected = isFavorite,
-            onClick = { isFavorite = !isFavorite }
+            icon = if (isSubscribed) Icons.Filled.Subscriptions else Icons.Outlined.Subscriptions,
+            label = if (isSubscribed) "Subscribed" else "Subscribe",
+            isSelected = isSubscribed,
+            onClick = onSubscribeClick
         )
 
-        // 3. Kualitas
-        PlayerActionButtonItem(
-            icon = Icons.Filled.PlayCircle,
-            label = currentQuality,
-            isSelected = false,
-            onClick = onQualityClick
-        )
-
-        // 4. Unduh
+        // 3. Unduh
         PlayerActionButtonItem(
             icon = Icons.Outlined.FileDownload,
             label = "Unduh",
@@ -1214,7 +1211,7 @@ fun PlayerActionRow(
             onClick = onDownloadClick
         )
 
-        // 5. Bagikan
+        // 4. Bagikan
         PlayerActionButtonItem(
             icon = Icons.Outlined.Share,
             label = "Bagikan",
@@ -1231,8 +1228,8 @@ private fun PlayerActionButtonItem(
     isSelected: Boolean = false,
     onClick: () -> Unit
 ) {
-    val activeColor = Color(0xFFFDD734)
-    val inactiveColor = Color(0xFFE7E5E6)
+    val activeColor = Color(0xFFFFFFFF)
+    val inactiveColor = Color(0xFF8E8E93)
     val color = if (isSelected) activeColor else inactiveColor
 
     Column(
@@ -1260,6 +1257,51 @@ private fun PlayerActionButtonItem(
     }
 }
 
+internal fun extractEpisodeNumber(ep: com.prstyadev.wibufy.data.EpisodeItem): Int? {
+    val titleStr = ep.title?.toString()?.trim() ?: ""
+    val slug = ep.episodeId?.trim() ?: ""
+
+    // Filter out non-regular items: Batch / Special / OVA / SP / Recap
+    val isNonRegular = titleStr.contains("batch", ignoreCase = true) ||
+            titleStr.contains("special", ignoreCase = true) ||
+            titleStr.contains(Regex("""\bsp\b""", RegexOption.IGNORE_CASE)) ||
+            titleStr.contains(Regex("""\bova\b""", RegexOption.IGNORE_CASE)) ||
+            titleStr.contains("recap", ignoreCase = true) ||
+            slug.contains("batch", ignoreCase = true) ||
+            slug.contains("-sp-", ignoreCase = true) ||
+            slug.contains("-ova-", ignoreCase = true) ||
+            slug.contains("-special-", ignoreCase = true)
+
+    if (isNonRegular) return null
+
+    // 1. Pure number in title (e.g. "1176" or 1176)
+    titleStr.toDoubleOrNull()?.toInt()?.let {
+        if (it > 0) return it
+    }
+
+    // 2. Regex from title: "Episode 1176", "Ep 12", "Eps 05"
+    val epTitleRegex = Regex("""(?:episode|eps|ep)?\s*(\d+)""", RegexOption.IGNORE_CASE)
+    val matchTitle = epTitleRegex.find(titleStr)
+    if (matchTitle != null) {
+        val num = matchTitle.groupValues[1].toIntOrNull()
+        if (num != null && num > 0) return num
+    }
+
+    // 3. Regex from slug: "one-piece-episode-1176-sub-indo"
+    val epSlugRegex = Regex("""(?:episode|ep)-(\d+)""", RegexOption.IGNORE_CASE)
+    val matchSlug = epSlugRegex.find(slug)
+    if (matchSlug != null) {
+        val num = matchSlug.groupValues[1].toIntOrNull()
+        if (num != null && num > 0) return num
+    }
+
+    // 4. Fallback any digit sequence in title
+    val anyDigit = Regex("""\d+""").find(titleStr)?.value?.toIntOrNull()
+    if (anyDigit != null && anyDigit > 0) return anyDigit
+
+    return null
+}
+
 @Composable
 fun PlayerEpisodeSection(
     episodeList: List<com.prstyadev.wibufy.data.EpisodeItem>?,
@@ -1270,19 +1312,17 @@ fun PlayerEpisodeSection(
 ) {
     if (episodeList.isNullOrEmpty()) return
 
-    val totalEp = episodeList.size
-    val sortedList = remember(episodeList) {
-        episodeList.sortedBy { ep ->
-            ep.title.toString().toDoubleOrNull()?.toInt()
-                ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
-                ?: Int.MAX_VALUE
-        }
+    val validEpisodes = remember(episodeList) {
+        episodeList.mapNotNull { ep ->
+            val num = extractEpisodeNumber(ep)
+            if (num != null) num to ep else null
+        }.distinctBy { it.first }.sortedBy { it.first }
     }
-    val latestEp = sortedList.lastOrNull()?.let { ep ->
-        ep.title.toString().toDoubleOrNull()?.toInt()
-            ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
-            ?: totalEp
-    } ?: totalEp
+
+    if (validEpisodes.isEmpty()) return
+
+    val totalEp = validEpisodes.size
+    val latestEp = validEpisodes.last().first
 
     Column(modifier = modifier.fillMaxWidth()) {
         Spacer(modifier = Modifier.height(10.dp))
@@ -1336,10 +1376,7 @@ fun PlayerEpisodeSection(
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            sortedList.forEach { ep ->
-                val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
-                    ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
-                    ?: 1
+            validEpisodes.forEach { (epNum, ep) ->
                 val isCurrent = epNum == currentEpNum
                 val epSlug = ep.episodeId ?: ""
 
@@ -1359,7 +1396,7 @@ fun PlayerEpisodeSection(
                     Text(
                         text = "$epNum",
                         color = if (isCurrent) Color(0xFF111215) else Color.White,
-                        fontSize = 16.sp,
+                        fontSize = if (epNum >= 1000) 14.sp else 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1412,7 +1449,14 @@ fun PlayerAllEpisodesSheetContent(
     onEpisodeSelect: (epSlug: String, epNum: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (episodeList.isNullOrEmpty()) {
+    val validEpisodes = remember(episodeList) {
+        episodeList.orEmpty().mapNotNull { ep ->
+            val num = extractEpisodeNumber(ep)
+            if (num != null) num to ep else null
+        }.distinctBy { it.first }.sortedBy { it.first }
+    }
+
+    if (validEpisodes.isEmpty()) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
@@ -1428,62 +1472,193 @@ fun PlayerAllEpisodesSheetContent(
         return
     }
 
-    val totalEp = episodeList.size
-    val sortedList = remember(episodeList) {
-        episodeList.sortedBy { ep ->
-            ep.title.toString().toDoubleOrNull()?.toInt()
-                ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
-                ?: Int.MAX_VALUE
+    val totalEp = validEpisodes.size
+    var isAscending by rememberSaveable { mutableStateOf(true) }
+
+    val sortedList = remember(validEpisodes, isAscending) {
+        if (isAscending) validEpisodes else validEpisodes.reversed()
+    }
+
+    val gridState = rememberLazyGridState()
+    val rowState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // Range chunk tab untuk anime panjang (> 30 episode ala Bstation)
+    val chunkSize = 30
+    val rangeChunks = remember(totalEp) {
+        if (totalEp > chunkSize) {
+            val count = (totalEp + chunkSize - 1) / chunkSize
+            (0 until count).map { index ->
+                val start = index * chunkSize + 1
+                val end = minOf((index + 1) * chunkSize, totalEp)
+                "$start-$end" to (start to end)
+            }
+        } else emptyList()
+    }
+
+    // Auto-scroll ke posisi episode yang sedang aktif saat bottom sheet dibuka atau saat sortir diubah
+    LaunchedEffect(currentEpNum, isAscending) {
+        val targetIndex = sortedList.indexOfFirst { it.first == currentEpNum }
+        if (targetIndex >= 0) {
+            gridState.scrollToItem(maxOf(0, targetIndex - 5))
+        }
+        // Auto scroll barisan chip rentang ke posisi rentang aktif
+        if (rangeChunks.isNotEmpty()) {
+            val activeChunkIndex = rangeChunks.indexOfFirst { (_, range) -> currentEpNum in range.first..range.second }
+            if (activeChunkIndex >= 0) {
+                rowState.scrollToItem(maxOf(0, activeChunkIndex - 1))
+            }
         }
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.55f)
+            .fillMaxHeight(0.72f)
             .padding(bottom = 16.dp)
     ) {
-        // Header Bar: "Semua episode (Total X)" & Tombol Tutup
+        // Header Bar: Judul, Subtitle (Sedang diputar), Tombol Urutkan, & Tombol Tutup
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 20.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Semua episode",
-                    color = Color(0xFFE7E5E6),
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "($totalEp Episode)",
-                    color = Color(0xFF8E8E93),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal
-                )
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Semua episode",
+                        color = Color(0xFFFFFFFF),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "($totalEp Episode)",
+                        color = Color(0xFF8E8E93),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFFFFFF))
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Sedang memutar: Episode $currentEpNum",
+                        color = Color(0xFFB0B0B5),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(32.dp)
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "Tutup",
-                    tint = Color(0xFF8E8E93),
-                    modifier = Modifier.size(20.dp)
-                )
+                // Tombol Sortir (1-N / N-1)
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF282A30),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { isAscending = !isAscending }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SwapVert,
+                            contentDescription = "Urutkan",
+                            tint = Color(0xFFFFFFFF),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isAscending) "1-$totalEp" else "$totalEp-1",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFFFFFFF)
+                        )
+                    }
+                }
+
+                // Tombol Tutup (X)
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Tutup",
+                        tint = Color(0xFF8E8E93),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
+        // Tab Rentang Episode jika anime panjang (> 30 episode)
+        if (rangeChunks.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            LazyRow(
+                state = rowState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                items(rangeChunks) { (label, range) ->
+                    val (startNum, endNum) = range
+                    val isRangeActive = currentEpNum in startNum..endNum
+
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isRangeActive) Color.White.copy(alpha = 0.15f) else Color(0xFF24262C),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (isRangeActive) Color.White else Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                coroutineScope.launch {
+                                    val targetIndex = sortedList.indexOfFirst { (num, _) ->
+                                        if (isAscending) num >= startNum else num <= endNum
+                                    }
+                                    if (targetIndex >= 0) {
+                                        gridState.animateScrollToItem(targetIndex)
+                                    }
+                                }
+                            }
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isRangeActive) Color.White else Color(0xFF8E8E93),
+                            fontSize = 12.sp,
+                            fontWeight = if (isRangeActive) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Grid Box Episode (5 Kolom)
+        // Grid Box Episode (5 Kolom) - Saran A: Minimalist Center Pure Numbers
         LazyVerticalGrid(
             columns = GridCells.Fixed(5),
+            state = gridState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -1492,22 +1667,19 @@ fun PlayerAllEpisodesSheetContent(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            items(sortedList) { ep ->
-                val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
-                    ?: Regex("\\d+").find(ep.title.toString())?.value?.toIntOrNull()
-                    ?: 1
+            items(sortedList) { (epNum, ep) ->
                 val isCurrent = epNum == currentEpNum
                 val epSlug = ep.episodeId ?: ""
 
                 Box(
                     modifier = Modifier
-                        .aspectRatio(1.25f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isCurrent) Color(0xFFFFFFFF) else Color(0xFF282A30))
+                        .aspectRatio(1.22f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isCurrent) Color(0xFFFFFFFF) else Color(0xFF24262C))
                         .border(
                             width = 1.dp,
                             color = if (isCurrent) Color(0xFFFFFFFF) else Color.White.copy(alpha = 0.08f),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(10.dp)
                         )
                         .clickable {
                             if (!isCurrent && epSlug.isNotBlank()) {
@@ -1516,35 +1688,13 @@ fun PlayerAllEpisodesSheetContent(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isCurrent) {
-                        // Icon speaker / equalizer subtle or Play indicator
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "Sedang diputar",
-                                tint = Color(0xFF111215),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "$epNum",
-                                color = Color(0xFF111215),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "$epNum",
-                            color = Color(0xFFE7E5E6),
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                    Text(
+                        text = "$epNum",
+                        color = if (isCurrent) Color(0xFF111215) else Color(0xFFE7E5E6),
+                        fontSize = if (epNum >= 1000) 13.5.sp else 15.sp,
+                        fontWeight = if (isCurrent) FontWeight.Black else FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }

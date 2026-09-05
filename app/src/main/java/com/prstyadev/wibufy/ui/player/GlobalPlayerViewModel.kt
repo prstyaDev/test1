@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.prstyadev.wibufy.data.AppDatabase
+import com.prstyadev.wibufy.data.BookmarkEntity
 import com.prstyadev.wibufy.data.EpisodeItem
 import com.prstyadev.wibufy.data.JsonUtils
 import com.prstyadev.wibufy.data.QualityItem
@@ -64,7 +65,9 @@ data class GlobalPlayerUiState(
     val nextEpisodeName: String? = null,
     val hasPreviousEpisode: Boolean = false,
     val hasNextEpisode: Boolean = false,
-    val synopsis: String? = null
+    val synopsis: String? = null,
+    val animeId: String? = null,
+    val isBookmarked: Boolean = false
 )
 
 @OptIn(UnstableApi::class)
@@ -73,6 +76,8 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
     private val prefs = context.getSharedPreferences("wibufy_player_prefs", Context.MODE_PRIVATE)
     private val historyRepository = WatchHistoryRepository(application)
     private val animeDetailDao = AppDatabase.getDatabase(application).animeDetailDao()
+    private val bookmarkDao = AppDatabase.getDatabase(application).bookmarkDao()
+    private var bookmarkObserveJob: Job? = null
 
     companion object {
         const val PREF_SELECTED_QUALITY = "PREF_SELECTED_QUALITY"
@@ -373,7 +378,8 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
         animeTitle: String? = null,
         episodeName: String? = null,
         posterUrl: String? = null,
-        episodeList: List<EpisodeItem>? = null
+        episodeList: List<EpisodeItem>? = null,
+        animeId: String? = null
     ) {
         val currentSlug = _uiState.value.episodeSlug
         if (_uiState.value.isActive && currentSlug == episodeSlug && exoPlayer.playbackState != Player.STATE_IDLE) {
@@ -417,6 +423,16 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
                 .trim()
             val cachedDetail = if (baseSlug.isNotBlank()) animeDetailDao.getAnimeDetail(baseSlug) else null
 
+            val resolvedAnimeId = animeId?.takeIf { it.isNotBlank() } ?: cachedDetail?.animeId ?: baseSlug
+            if (resolvedAnimeId.isNotBlank()) {
+                bookmarkObserveJob?.cancel()
+                bookmarkObserveJob = viewModelScope.launch {
+                    bookmarkDao.getBookmarkById(resolvedAnimeId).collect { bookmark ->
+                        _uiState.update { it.copy(animeId = resolvedAnimeId, isBookmarked = (bookmark != null)) }
+                    }
+                }
+            }
+
             val cachedDetailTitle = if (animeTitle.isNullOrBlank()) {
                 cachedDetail?.title
             } else null
@@ -444,6 +460,7 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
                     isMinimized = false,
                     isLoading = true,
                     episodeSlug = episodeSlug,
+                    animeId = resolvedAnimeId,
                     animeTitle = resolvedInitialTitle,
                     episodeName = resolvedInitialEpName,
                     posterUrl = posterUrl ?: savedHistory?.posterUrl ?: it.posterUrl,
@@ -684,7 +701,75 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun toggleBookmark() {
+        val currentAnimeId = _uiState.value.animeId?.takeIf { it.isNotBlank() }
+            ?: _uiState.value.episodeSlug
+                .replace(Regex("(?i)-episode-\\d+.*"), "")
+                .replace(Regex("(?i)-ep-\\d+.*"), "")
+                .trim()
+                .takeIf { it.isNotBlank() }
+            ?: return
+
+        val isCurrentlyBookmarked = _uiState.value.isBookmarked
+        viewModelScope.launch {
+            if (isCurrentlyBookmarked) {
+                bookmarkDao.deleteBookmarkById(currentAnimeId)
+            } else {
+                val cachedDetail = animeDetailDao.getAnimeDetail(currentAnimeId)
+                val title = _uiState.value.animeTitle?.takeIf { it.isNotBlank() }
+                    ?: cachedDetail?.title
+                    ?: currentAnimeId.replace("-", " ")
+                        .split(" ")
+                        .joinToString(" ") { word ->
+                            word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                        }
+                val poster = _uiState.value.posterUrl ?: cachedDetail?.poster
+                val epText = cachedDetail?.aired
+                    ?: _uiState.value.episodeList?.size?.let { "$it Ep" }
+                    ?: cachedDetail?.duration
+                    ?: "?"
+                val scoreVal = cachedDetail?.rating ?: "N/A"
+                val statusVal = cachedDetail?.status?.takeIf { it.isNotBlank() } ?: "Ongoing"
+
+                bookmarkDao.insertBookmark(
+                    BookmarkEntity(
+                        animeId = currentAnimeId,
+                        title = title,
+                        poster = poster,
+                        episodes = epText,
+                        score = scoreVal,
+                        status = statusVal,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+
+                if (cachedDetail == null || cachedDetail.poster.isNullOrBlank()) {
+                    try {
+                        val resp = RetrofitClient.apiService.getAnimeDetail(currentAnimeId)
+                        val anime = resp.data?.anime
+                        if (anime != null) {
+                            bookmarkDao.insertBookmark(
+                                BookmarkEntity(
+                                    animeId = currentAnimeId,
+                                    title = anime.title ?: title,
+                                    poster = anime.poster ?: poster,
+                                    episodes = anime.episodes ?: epText,
+                                    score = anime.score?.value ?: scoreVal,
+                                    status = anime.status ?: statusVal,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        // ignore network failure
+                    }
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
+        bookmarkObserveJob?.cancel()
         saveCurrentProgress()
         exoPlayer.release()
         super.onCleared()
