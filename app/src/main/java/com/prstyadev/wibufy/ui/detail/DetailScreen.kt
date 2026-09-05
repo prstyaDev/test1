@@ -34,7 +34,7 @@ import com.prstyadev.wibufy.data.EpisodeItem
 fun DetailScreen(
     animeId: String,
     onNavigateBack: () -> Unit,
-    onNavigateToPlayer: (episodeSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?) -> Unit,
+    onNavigateToPlayer: (episodeSlug: String, animeTitle: String?, episodeName: String?, posterUrl: String?, episodeList: List<EpisodeItem>?) -> Unit,
     viewModel: DetailViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -131,14 +131,15 @@ fun DetailScreen(
                                                     lastHistory.episodeSlug,
                                                     anime.title,
                                                     lastHistory.episodeName ?: "Episode 1",
-                                                    anime.poster
+                                                    anime.poster,
+                                                    anime.episodeList
                                                 )
                                             } else {
                                                 val firstEp = findFirstEpisode(anime.episodeList)
                                                 if (firstEp?.episodeId != null) {
                                                     val epNum = firstEp.title.toString().toDoubleOrNull()?.toInt()?.toString() ?: firstEp.title.toString()
                                                     val epTitle = "Episode $epNum"
-                                                    onNavigateToPlayer(firstEp.episodeId, anime.title, epTitle, anime.poster)
+                                                    onNavigateToPlayer(firstEp.episodeId, anime.title, epTitle, anime.poster, anime.episodeList)
                                                 }
                                             }
                                         },
@@ -288,7 +289,7 @@ fun DetailScreen(
                             headlineContent = { Text(epTitle) },
                             modifier = Modifier.clickable {
                                 episode.episodeId?.let { slug ->
-                                    onNavigateToPlayer(slug, anime.title, epTitle, anime.poster)
+                                    onNavigateToPlayer(slug, anime.title, epTitle, anime.poster, episodes)
                                 }
                             }
                         )

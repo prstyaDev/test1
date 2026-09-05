@@ -1286,7 +1286,7 @@ fun PlayerEpisodeSection(
 
     Column(modifier = modifier.fillMaxWidth()) {
         Spacer(modifier = Modifier.height(10.dp))
-        // Header Bar: Semua episode & Terbaru EP X > (Clickable)
+        // Header Bar: "Episode List" & "Terbaru EP X >" (Clickable)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1295,10 +1295,10 @@ fun PlayerEpisodeSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Semua episode",
+                text = "Episode List",
                 color = Color(0xFFE7E5E6),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
                     .clickable { onOpenAllEpisodes() }
@@ -1313,7 +1313,7 @@ fun PlayerEpisodeSection(
                 Text(
                     text = "Terbaru EP $latestEp",
                     color = Color(0xFF8E8E93),
-                    fontSize = 12.5.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.width(2.dp))
@@ -1321,20 +1321,20 @@ fun PlayerEpisodeSection(
                     imageVector = Icons.Rounded.ChevronRight,
                     contentDescription = "Buka semua episode",
                     tint = Color(0xFF8E8E93),
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Horizontal numbered boxes [ 1 ] [ 2 ] [ 3 ] ...
+        // Horizontal numbered squircle boxes [ 1 ] [ 2 ] [ 3 ] ...
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             sortedList.forEach { ep ->
                 val epNum = ep.title.toString().toDoubleOrNull()?.toInt()
@@ -1343,30 +1343,25 @@ fun PlayerEpisodeSection(
                 val isCurrent = epNum == currentEpNum
                 val epSlug = ep.episodeId ?: ""
 
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isCurrent) Color(0xFFFFFFFF) else Color(0xFF1A1D24),
-                    border = if (!isCurrent) androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)) else null,
+                Box(
                     modifier = Modifier
-                        .widthIn(min = 52.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isCurrent) Color.White else Color(0xFF1E242E))
                         .clickable {
                             if (!isCurrent && epSlug.isNotBlank()) {
                                 onEpisodeClick(epSlug, epNum)
                             }
                         }
+                        .padding(horizontal = if (epNum >= 100) 10.dp else 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "$epNum",
-                            color = if (isCurrent) Color(0xFF111215) else Color(0xFFE7E5E6),
-                            fontSize = 13.5.sp,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold
-                        )
-                    }
+                    Text(
+                        text = "$epNum",
+                        color = if (isCurrent) Color(0xFF111215) else Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -2001,21 +1996,20 @@ fun CustomVideoPlayer(
                         )
                 )
 
-                // Center Controls Row
-                Row(
+                // Center Controls Container (Anchored at exact center)
+                Box(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp)
                 ) {
-                    // 1. Skip Previous
+                    // 1. Skip Previous (Anchored to Left)
                     if (hasPrevEpisode) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
-                                .widthIn(min = 64.dp)
+                                .align(Alignment.CenterStart)
+                                .widthIn(min = 48.dp, max = 84.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
@@ -2023,7 +2017,7 @@ fun CustomVideoPlayer(
                                 ) {
                                     onNavigatePrevious()
                                 }
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .padding(horizontal = 4.dp, vertical = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SkipPrevious,
@@ -2044,60 +2038,64 @@ fun CustomVideoPlayer(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    } else {
-                        Spacer(modifier = Modifier.width(64.dp))
                     }
 
-                    // 2. Replay 10 Seconds
-                    IconButton(
-                        onClick = { onSeekBy(-10000L) },
-                        modifier = Modifier.size(48.dp)
+                    // 2. Center Trio: [Replay 10s] [Play/Pause] [Forward 10s] (Mathematically locked at exact Center)
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Replay10,
-                            contentDescription = "Replay 10s",
-                            tint = Color.White,
-                            modifier = Modifier.size(34.dp)
-                        )
+                        IconButton(
+                            onClick = { onSeekBy(-10000L) },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Replay10,
+                                contentDescription = "Replay 10s",
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+
+                        // Main Big White Play / Pause Circle Button
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .shadow(6.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable { onTogglePlayPause() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color(0xFF1E1F24),
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { onSeekBy(10000L) },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Forward10,
+                                contentDescription = "Forward 10s",
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
                     }
 
-                    // 3. Main Big White Play / Pause Circle Button
-                    Box(
-                        modifier = Modifier
-                            .size(58.dp)
-                            .shadow(6.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .clickable { onTogglePlayPause() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color(0xFF1E1F24),
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-
-                    // 4. Forward 10 Seconds
-                    IconButton(
-                        onClick = { onSeekBy(10000L) },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Forward10,
-                            contentDescription = "Forward 10s",
-                            tint = Color.White,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-
-                    // 5. Skip Next
+                    // 3. Skip Next (Anchored to Right)
                     if (hasNextEpisode) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
-                                .widthIn(min = 64.dp)
+                                .align(Alignment.CenterEnd)
+                                .widthIn(min = 48.dp, max = 84.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
@@ -2105,7 +2103,7 @@ fun CustomVideoPlayer(
                                 ) {
                                     onNavigateNext()
                                 }
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .padding(horizontal = 4.dp, vertical = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SkipNext,
@@ -2126,8 +2124,6 @@ fun CustomVideoPlayer(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    } else {
-                        Spacer(modifier = Modifier.width(64.dp))
                     }
                 }
 

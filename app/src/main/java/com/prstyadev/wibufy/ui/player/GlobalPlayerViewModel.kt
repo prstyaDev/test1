@@ -224,8 +224,27 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
         return Pair(selectedQualityItem?.quality, selectedQualityItem?.url)
     }
 
-    private suspend fun resolveEpisodes(episodeSlug: String): Triple<List<EpisodeItem>?, Pair<String?, String?>?, Pair<String?, String?>?> {
-        var episodes = cachedEpisodeList
+    private suspend fun resolveEpisodes(
+        episodeSlug: String,
+        providedEpisodes: List<EpisodeItem>? = null
+    ): Triple<List<EpisodeItem>?, Pair<String?, String?>?, Pair<String?, String?>?> {
+        var episodes: List<EpisodeItem>? = if (!providedEpisodes.isNullOrEmpty()) providedEpisodes else null
+
+        // If not explicitly provided, check if existing cachedEpisodeList belongs to this anime
+        if (episodes.isNullOrEmpty()) {
+            val isCurrentInCache = cachedEpisodeList?.any { ep ->
+                val id = ep.episodeId?.trim()
+                id != null && (id.equals(episodeSlug.trim(), ignoreCase = true) || id.contains(episodeSlug.trim(), ignoreCase = true) || episodeSlug.trim().contains(id, ignoreCase = true))
+            } == true
+
+            if (isCurrentInCache) {
+                episodes = cachedEpisodeList
+            } else {
+                // Different anime! Clear stale cache so previous anime episodes are not shown
+                cachedEpisodeList = null
+            }
+        }
+
         if (episodes.isNullOrEmpty()) {
             val baseSlug = episodeSlug
                 .replace(Regex("(?i)-episode-\\d+.*"), "")
@@ -253,9 +272,21 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
                 }
             }
 
-            if (episodes != null) {
+            // Fallback: If still empty, fetch anime detail from API if baseSlug is not blank
+            if (episodes.isNullOrEmpty() && baseSlug.isNotBlank()) {
+                try {
+                    val resp = RetrofitClient.apiService.getAnimeDetail(baseSlug)
+                    episodes = resp.data?.anime?.episodeList
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+
+            if (!episodes.isNullOrEmpty()) {
                 cachedEpisodeList = episodes
             }
+        } else {
+            cachedEpisodeList = episodes
         }
 
         if (!episodes.isNullOrEmpty()) {
@@ -341,7 +372,8 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
         episodeSlug: String,
         animeTitle: String? = null,
         episodeName: String? = null,
-        posterUrl: String? = null
+        posterUrl: String? = null,
+        episodeList: List<EpisodeItem>? = null
     ) {
         val currentSlug = _uiState.value.episodeSlug
         if (_uiState.value.isActive && currentSlug == episodeSlug && exoPlayer.playbackState != Player.STATE_IDLE) {
@@ -351,7 +383,8 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
                     isMinimized = false,
                     animeTitle = animeTitle ?: it.animeTitle,
                     episodeName = episodeName ?: it.episodeName,
-                    posterUrl = posterUrl ?: it.posterUrl
+                    posterUrl = posterUrl ?: it.posterUrl,
+                    episodeList = if (!episodeList.isNullOrEmpty()) episodeList else it.episodeList
                 )
             }
             if (!exoPlayer.isPlaying) {
@@ -371,7 +404,7 @@ class GlobalPlayerViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             val savedHistory = historyRepository.getHistory(episodeSlug)
             val initialPos = savedHistory?.lastPositionMs ?: 0L
-            val (resolvedEpisodes, prevPair, nextPair) = resolveEpisodes(episodeSlug)
+            val (resolvedEpisodes, prevPair, nextPair) = resolveEpisodes(episodeSlug, episodeList)
 
             val currentEpItem = resolvedEpisodes?.find { ep ->
                 val id = ep.episodeId?.trim()
